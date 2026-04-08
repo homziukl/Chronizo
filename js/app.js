@@ -1,7 +1,7 @@
 // app.js — Main application controller for Chronizo
 
 import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage } from './storage.js';
-import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createEvent } from './events.js';
+import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse } from './events.js';
 import { TimelineRenderer } from './timeline.js';
 
 // ===== State =====
@@ -15,11 +15,9 @@ renderer.setProject(project);
 renderer.resize();
 
 window.addEventListener('resize', () => renderer.resize());
-
-// Auto-save every 30s
 setInterval(() => saveToLocalStorage(project), 30000);
 
-// ===== Update UI helpers =====
+// ===== UI helpers =====
 function refreshAll() {
   renderer.setProject(project);
   updateProjectLabel();
@@ -28,26 +26,28 @@ function refreshAll() {
 }
 
 function updateProjectLabel() {
-  const label = document.getElementById('project-name');
-  label.textContent = project.meta.name;
+  document.getElementById('project-name').textContent = project.meta.name;
 }
 
 function populateUniverseSelects() {
-  const selects = [document.getElementById('ev-universe'), document.getElementById('ev-speculative')];
-  selects.forEach((sel, idx) => {
+  const ids = ['ev-universe', 'ev-speculative'];
+  ids.forEach((id, idx) => {
+    const sel = document.getElementById(id);
     const val = sel.value;
     sel.innerHTML = idx === 1 ? '<option value="">— none —</option>' : '';
     project.universes.forEach(u => {
       const opt = document.createElement('option');
       opt.value = u.id;
-      opt.textContent = u.name;
+      // Show parent info for non-main
+      const parent = u.parentUniverse ? project.universes.find(p => p.id === u.parentUniverse) : null;
+      opt.textContent = parent ? `${u.name} (← ${parent.name})` : u.name;
       sel.appendChild(opt);
     });
     sel.value = val;
   });
 }
 
-// ===== Top bar buttons =====
+// ===== Top bar =====
 document.getElementById('btn-new').addEventListener('click', () => {
   const name = prompt('Project name:', 'My Timeline');
   if (!name) return;
@@ -56,9 +56,7 @@ document.getElementById('btn-new').addEventListener('click', () => {
   refreshAll();
 });
 
-document.getElementById('btn-save').addEventListener('click', () => {
-  saveToFile(project);
-});
+document.getElementById('btn-save').addEventListener('click', () => saveToFile(project));
 
 document.getElementById('btn-load').addEventListener('click', async () => {
   try {
@@ -70,26 +68,26 @@ document.getElementById('btn-load').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('btn-add-event').addEventListener('click', () => {
-  openEventPanel(null);
-});
+document.getElementById('btn-add-event').addEventListener('click', () => openEventPanel(null));
 
 document.getElementById('sort-mode').addEventListener('change', (e) => {
   renderer.setSortMode(e.target.value);
 });
 
-// ===== Project name editing =====
 document.getElementById('project-name').addEventListener('click', () => {
   const name = prompt('Project name:', project.meta.name);
-  if (name) {
-    project.meta.name = name;
-    refreshAll();
-  }
+  if (name) { project.meta.name = name; refreshAll(); }
 });
 
 // ===== Side Panel — Event Form =====
 const panel = document.getElementById('side-panel');
 const form = document.getElementById('event-form');
+
+function getLocField(ev, field) {
+  if (!ev?.location) return '';
+  if (typeof ev.location === 'string') return field === 'place' ? ev.location : '';
+  return ev.location[field] || '';
+}
 
 function openEventPanel(event) {
   editingEventId = event?.id || null;
@@ -99,10 +97,7 @@ function openEventPanel(event) {
 
   populateUniverseSelects();
 
-  // Fill form
   document.getElementById('ev-title').value = event?.title || '';
-  document.getElementById('ev-universe').value = event?.universe || 'main';
-  document.getElementById('ev-speculative').value = event?.speculativeUniverse || '';
   document.getElementById('ev-date-exact').value = event?.date?.exact || '';
   document.getElementById('ev-date-approx').value = event?.date?.approximate || '';
   document.getElementById('ev-season').value = event?.date?.season || '';
@@ -110,6 +105,18 @@ function openEventPanel(event) {
   document.getElementById('ev-reasoning').value = event?.reasoning || '';
   document.getElementById('ev-tags').value = (event?.tags || []).join(', ');
   document.getElementById('ev-sort-order').value = event?.sortOrder?.custom || 0;
+
+  // Location fields
+  document.getElementById('ev-loc-realm').value = getLocField(event, 'realm');
+  document.getElementById('ev-loc-planet').value = getLocField(event, 'planet');
+  document.getElementById('ev-loc-region').value = getLocField(event, 'region');
+  document.getElementById('ev-loc-place').value = getLocField(event, 'place');
+
+  // Set universe selects AFTER populate
+  requestAnimationFrame(() => {
+    document.getElementById('ev-universe').value = event?.universe || 'main';
+    document.getElementById('ev-speculative').value = event?.speculativeUniverse || '';
+  });
 }
 
 document.getElementById('btn-close-panel').addEventListener('click', () => {
@@ -132,6 +139,12 @@ form.addEventListener('submit', (e) => {
     },
     releaseDate: document.getElementById('ev-release').value,
     reasoning: document.getElementById('ev-reasoning').value,
+    location: {
+      realm: document.getElementById('ev-loc-realm').value.trim(),
+      planet: document.getElementById('ev-loc-planet').value.trim(),
+      region: document.getElementById('ev-loc-region').value.trim(),
+      place: document.getElementById('ev-loc-place').value.trim()
+    },
     tags: document.getElementById('ev-tags').value.split(',').map(t => t.trim()).filter(Boolean),
     sortOrder: { custom: parseInt(document.getElementById('ev-sort-order').value) || 0 }
   };
@@ -158,30 +171,39 @@ document.getElementById('btn-delete-event').addEventListener('click', () => {
   refreshAll();
 });
 
-// ===== Canvas event callbacks =====
-renderer.onEventClick = (event) => {
-  openEventPanel(event);
-};
+renderer.onEventClick = (event) => openEventPanel(event);
 
 // ===== Universe Dialog =====
 const dialog = document.getElementById('universe-dialog');
 
+function populateParentSelect() {
+  const sel = document.getElementById('uni-parent');
+  sel.innerHTML = '<option value="">— branches from main axis —</option>';
+  project.universes.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u.id;
+    opt.textContent = u.name;
+    sel.appendChild(opt);
+  });
+}
+
 document.getElementById('btn-add-universe').addEventListener('click', () => {
   renderUniverseList();
+  populateParentSelect();
   dialog.showModal();
 });
 
-document.getElementById('btn-close-dialog').addEventListener('click', () => {
-  dialog.close();
-});
+document.getElementById('btn-close-dialog').addEventListener('click', () => dialog.close());
 
 document.getElementById('btn-add-uni').addEventListener('click', () => {
   const name = document.getElementById('uni-name').value.trim();
   const color = document.getElementById('uni-color').value;
+  const parentId = document.getElementById('uni-parent').value || null;
   if (!name) return;
-  addUniverse(project, name, color);
+  addUniverse(project, name, color, parentId);
   document.getElementById('uni-name').value = '';
   renderUniverseList();
+  populateParentSelect();
   refreshAll();
 });
 
@@ -189,11 +211,13 @@ function renderUniverseList() {
   const list = document.getElementById('universe-list');
   list.innerHTML = '';
   project.universes.forEach(uni => {
+    const parent = uni.parentUniverse ? project.universes.find(p => p.id === uni.parentUniverse) : null;
+    const parentLabel = parent ? ` ← ${parent.name}` : uni.isMain ? '' : ' ← main axis';
     const div = document.createElement('div');
     div.className = 'uni-item';
     div.innerHTML = `
       <div class="uni-swatch" style="background:${uni.color}"></div>
-      <span>${uni.name}</span>
+      <span>${uni.name}<em style="color:#8a8778;font-size:10px">${parentLabel}</em></span>
       ${uni.isMain ? '<em style="color:#8a8778;font-size:11px">main</em>' : `<button data-id="${uni.id}" class="danger uni-del">✕</button>`}
     `;
     list.appendChild(div);
@@ -203,6 +227,7 @@ function renderUniverseList() {
     btn.addEventListener('click', () => {
       deleteUniverse(project, btn.dataset.id);
       renderUniverseList();
+      populateParentSelect();
       refreshAll();
     });
   });

@@ -87,6 +87,22 @@
           <input type="text" id="ev-tags" placeholder="avengers, invasion, earth">
         </label>
 
+        <fieldset>
+          <legend>Location</legend>
+          <label>Realm / Dimension
+            <input type="text" id="ev-loc-realm" placeholder="Nine Realms, Dark Dimension, Quantum Realm...">
+          </label>
+          <label>Planet / World
+            <input type="text" id="ev-loc-planet" placeholder="Earth, Asgard, Vormir, Knowhere...">
+          </label>
+          <label>Region / Territory
+            <input type="text" id="ev-loc-region" placeholder="Europe, Wakanda, Sokovia...">
+          </label>
+          <label>Place / City
+            <input type="text" id="ev-loc-place" placeholder="New York, Berlin, Kamar-Taj...">
+          </label>
+        </fieldset>
+
         <label>Custom Sort Order
           <input type="number" id="ev-sort-order" value="0">
         </label>
@@ -104,7 +120,10 @@
       <div id="universe-list"></div>
       <div class="dialog-add">
         <input type="text" id="uni-name" placeholder="Universe name (e.g. Earth-616)">
-        <input type="color" id="uni-color" value="#ff6b00">
+        <input type="color" id="uni-color" value="#a855f7">
+        <select id="uni-parent" title="Branches from...">
+          <option value="">— branches from main —</option>
+        </select>
         <button id="btn-add-uni">Add</button>
       </div>
       <button id="btn-close-dialog">Close</button>
