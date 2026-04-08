@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chronizo — Timeline Builder</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Top bar -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <h1>⟁ Chronizo</h1>
+        <span id="project-name" class="project-label">Untitled Project</span>
+      </div>
+      <div class="topbar-right">
+        <button id="btn-new" title="New project">✦ New</button>
+        <button id="btn-load" title="Load JSON file">⟐ Load</button>
+        <button id="btn-save" title="Save as JSON">⟑ Save</button>
+        <button id="btn-add-event" title="Add event">+ Event</button>
+        <button id="btn-add-universe" title="Add universe">+ Universe</button>
+        <select id="sort-mode">
+          <option value="in-universe">In-Universe Chronology</option>
+          <option value="release">Release Order</option>
+          <option value="custom">Custom Order</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- Main canvas area -->
+    <div id="timeline-viewport">
+      <canvas id="timeline-canvas"></canvas>
+      <!-- Tooltip on hover -->
+      <div id="event-tooltip" class="tooltip hidden"></div>
+    </div>
+
+    <!-- Side panel for event editing -->
+    <aside id="side-panel" class="hidden">
+      <div class="panel-header">
+        <h2 id="panel-title">New Event</h2>
+        <button id="btn-close-panel">✕</button>
+      </div>
+      <form id="event-form">
+        <label>Title
+          <input type="text" id="ev-title" required placeholder="Battle of New York">
+        </label>
+
+        <label>Official Universe
+          <select id="ev-universe"></select>
+        </label>
+
+        <label>Speculative Universe
+          <select id="ev-speculative">
+            <option value="">— none —</option>
+          </select>
+        </label>
+
+        <fieldset>
+          <legend>Date</legend>
+          <label>Exact date
+            <input type="date" id="ev-date-exact">
+          </label>
+          <label>Approximate (year or text)
+            <input type="text" id="ev-date-approx" placeholder="~2012 or 'Before Age of Ultron'">
+          </label>
+          <label>Season
+            <select id="ev-season">
+              <option value="">— unknown —</option>
+              <option value="spring">🌱 Spring</option>
+              <option value="summer">☀️ Summer</option>
+              <option value="autumn">🍂 Autumn</option>
+              <option value="winter">❄️ Winter</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <label>Release Date (real world)
+          <input type="date" id="ev-release">
+        </label>
+
+        <label>Reasoning
+          <textarea id="ev-reasoning" rows="3" placeholder="Why this event belongs here..."></textarea>
+        </label>
+
+        <label>Tags (comma separated)
+          <input type="text" id="ev-tags" placeholder="avengers, invasion, earth">
+        </label>
+
+        <label>Custom Sort Order
+          <input type="number" id="ev-sort-order" value="0">
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" id="btn-save-event">Save Event</button>
+          <button type="button" id="btn-delete-event" class="danger hidden">Delete</button>
+        </div>
+      </form>
+    </aside>
+
+    <!-- Universe manager modal -->
+    <dialog id="universe-dialog">
+      <h2>Manage Universes</h2>
+      <div id="universe-list"></div>
+      <div class="dialog-add">
+        <input type="text" id="uni-name" placeholder="Universe name (e.g. Earth-616)">
+        <input type="color" id="uni-color" value="#ff6b00">
+        <button id="btn-add-uni">Add</button>
+      </div>
+      <button id="btn-close-dialog">Close</button>
+    </dialog>
+
+    <!-- Hidden file input -->
+    <input type="file" id="file-input" accept=".json" class="hidden">
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
