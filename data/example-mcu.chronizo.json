@@ -1,69 +1,150 @@
 {
   "meta": {
     "name": "MCU Timeline",
-    "author": "user",
+    "author": "Chronizo",
     "created": "2026-04-08T00:00:00.000Z",
     "modified": "2026-04-08T00:00:00.000Z",
     "version": "1.0.0"
   },
   "universes": [
-    { "id": "main", "name": "Sacred Timeline (Earth-616/MCU)", "color": "#ff6b00", "isMain": true },
-    { "id": "earth-838", "name": "Earth-838 (Illuminati)", "color": "#a855f7", "isMain": false },
-    { "id": "earth-65", "name": "Earth-65 (Spider-Gwen)", "color": "#ec4899", "isMain": false },
-    { "id": "real-history", "name": "Real World History", "color": "#3b82f6", "isMain": false }
+    { "id": "main", "name": "Sacred Timeline (MCU)", "color": "#ff6b00", "isMain": true, "parentUniverse": null },
+    { "id": "real-history", "name": "Real World History", "color": "#3b82f6", "isMain": false, "parentUniverse": null },
+    { "id": "earth-838", "name": "Earth-838 (Illuminati)", "color": "#a855f7", "isMain": false, "parentUniverse": "main" },
+    { "id": "earth-65", "name": "Earth-65 (Spider-Gwen)", "color": "#ec4899", "isMain": false, "parentUniverse": "main" },
+    { "id": "earth-838b", "name": "Earth-838 Variant B", "color": "#c084fc", "isMain": false, "parentUniverse": "earth-838" }
   ],
   "events": [
     {
       "id": "ev-ww2",
-      "title": "World War II begins",
+      "title": "World War II",
       "universe": "real-history",
       "speculativeUniverse": "",
-      "date": { "exact": "1939-09-01", "approximate": "", "season": "autumn", "era": "" },
+      "date": { "exact": null, "approximate": "", "season": "", "era": "", "rangeFrom": "1939", "rangeTo": "1945" },
       "releaseDate": "",
       "source": "Historical record",
-      "reasoning": "Real-world anchor point for Captain America timeline",
+      "reasoning": "Real-world anchor for Captain America timeline",
+      "evidence": "shown",
       "tags": ["wwii", "history"],
       "sortOrder": { "custom": 1 },
-      "media": { "type": "historical", "title": "", "episode": "" }
+      "location": { "realm": "", "planet": "Earth", "region": "Europe", "place": "" },
+      "media": { "type": "historical", "title": "", "episode": "" },
+      "subEvents": []
     },
     {
       "id": "ev-cap-serum",
       "title": "Steve Rogers receives Super Soldier Serum",
       "universe": "main",
       "speculativeUniverse": "",
-      "date": { "exact": null, "approximate": "1943", "season": "summer", "era": "" },
+      "date": { "exact": null, "approximate": "1943", "season": "summer", "era": "", "rangeFrom": "", "rangeTo": "" },
       "releaseDate": "2011-07-22",
       "source": "",
-      "reasoning": "Captain America: The First Avenger — set during WWII, branches from real history",
+      "reasoning": "Captain America: The First Avenger — set during WWII",
+      "evidence": "shown",
       "tags": ["captain-america", "origin"],
       "sortOrder": { "custom": 2 },
-      "media": { "type": "film", "title": "Captain America: The First Avenger", "episode": "" }
+      "location": { "realm": "", "planet": "Earth", "region": "North America", "place": "Brooklyn, NY" },
+      "media": { "type": "film", "title": "Captain America: The First Avenger", "episode": "" },
+      "subEvents": []
+    },
+    {
+      "id": "ev-cap-ice",
+      "title": "Cap crashes into Arctic ice",
+      "universe": "main",
+      "speculativeUniverse": "",
+      "date": { "exact": null, "approximate": "1945", "season": "winter", "era": "", "rangeFrom": "", "rangeTo": "" },
+      "releaseDate": "2011-07-22",
+      "source": "",
+      "reasoning": "End of The First Avenger — frozen until 2011",
+      "evidence": "shown",
+      "tags": ["captain-america"],
+      "sortOrder": { "custom": 3 },
+      "location": { "realm": "", "planet": "Earth", "region": "Arctic", "place": "" },
+      "media": { "type": "film", "title": "Captain America: The First Avenger", "episode": "" },
+      "subEvents": []
     },
     {
       "id": "ev-battle-ny",
       "title": "Battle of New York",
       "universe": "main",
       "speculativeUniverse": "",
-      "date": { "exact": null, "approximate": "2012", "season": "spring", "era": "" },
+      "date": { "exact": null, "approximate": "2012", "season": "spring", "era": "", "rangeFrom": "", "rangeTo": "" },
       "releaseDate": "2012-05-04",
       "source": "",
       "reasoning": "The Avengers — first major team-up, Chitauri invasion",
+      "evidence": "shown",
       "tags": ["avengers", "invasion", "loki"],
       "sortOrder": { "custom": 5 },
-      "media": { "type": "film", "title": "The Avengers", "episode": "" }
+      "location": { "realm": "", "planet": "Earth", "region": "North America", "place": "New York City" },
+      "media": { "type": "film", "title": "The Avengers", "episode": "" },
+      "subEvents": []
     },
     {
-      "id": "ev-multiverse-madness",
-      "title": "Wanda attacks Kamar-Taj, enters Earth-838",
+      "id": "ev-endgame",
+      "title": "Time Heist & Final Battle",
+      "universe": "main",
+      "speculativeUniverse": "",
+      "date": { "exact": null, "approximate": "2023", "season": "", "era": "", "rangeFrom": "", "rangeTo": "" },
+      "releaseDate": "2019-04-26",
+      "source": "",
+      "reasoning": "Avengers: Endgame — 5 years after Snap (2018)",
+      "evidence": "shown",
+      "tags": ["avengers", "endgame", "time-travel"],
+      "sortOrder": { "custom": 8 },
+      "location": { "realm": "", "planet": "Earth", "region": "North America", "place": "Avengers Compound" },
+      "media": { "type": "film", "title": "Avengers: Endgame", "episode": "" },
+      "subEvents": [
+        { "id": "sub-1", "type": "flashback", "label": "Time Heist: 2012 NY", "date": { "approximate": "2012", "season": "" }, "location": { "place": "New York" }, "note": "Avengers travel back to Battle of NY" },
+        { "id": "sub-2", "type": "flashback", "label": "Time Heist: 1970 Camp Lehigh", "date": { "approximate": "1970", "season": "" }, "location": { "place": "Camp Lehigh" }, "note": "Tony & Steve go further back" },
+        { "id": "sub-3", "type": "flashback", "label": "Time Heist: 2013 Asgard", "date": { "approximate": "2013", "season": "" }, "location": { "place": "Asgard" }, "note": "Thor retrieves Reality Stone" }
+      ]
+    },
+    {
+      "id": "ev-mom",
+      "title": "Wanda attacks Kamar-Taj",
       "universe": "main",
       "speculativeUniverse": "earth-838",
-      "date": { "exact": null, "approximate": "2025", "season": "", "era": "" },
+      "date": { "exact": null, "approximate": "2025", "season": "", "era": "", "rangeFrom": "", "rangeTo": "" },
       "releaseDate": "2022-05-06",
       "source": "",
       "reasoning": "Doctor Strange in the Multiverse of Madness — Wanda dreamwalks into Earth-838",
+      "evidence": "shown",
       "tags": ["multiverse", "wanda", "strange"],
       "sortOrder": { "custom": 10 },
-      "media": { "type": "film", "title": "Doctor Strange in the Multiverse of Madness", "episode": "" }
+      "location": { "realm": "", "planet": "Earth", "region": "", "place": "Kamar-Taj" },
+      "media": { "type": "film", "title": "Doctor Strange in the Multiverse of Madness", "episode": "" },
+      "subEvents": []
+    },
+    {
+      "id": "ev-838-illuminati",
+      "title": "Illuminati formed",
+      "universe": "earth-838",
+      "speculativeUniverse": "",
+      "date": { "exact": null, "approximate": "2018", "season": "", "era": "", "rangeFrom": "", "rangeTo": "" },
+      "releaseDate": "2022-05-06",
+      "source": "",
+      "reasoning": "Earth-838 Illuminati existed before MoM events — implied to have formed around Thanos threat",
+      "evidence": "implied",
+      "tags": ["illuminati", "earth-838"],
+      "sortOrder": { "custom": 7 },
+      "location": { "realm": "", "planet": "Earth", "region": "", "place": "Illuminati HQ" },
+      "media": { "type": "film", "title": "Doctor Strange in the Multiverse of Madness", "episode": "" },
+      "subEvents": []
+    },
+    {
+      "id": "ev-gwen-origin",
+      "title": "Gwen Stacy bitten by spider",
+      "universe": "earth-65",
+      "speculativeUniverse": "",
+      "date": { "exact": null, "approximate": "2015", "season": "", "era": "", "rangeFrom": "", "rangeTo": "" },
+      "releaseDate": "2018-12-14",
+      "source": "",
+      "reasoning": "Spider-Verse — Gwen's origin, roughly same era as Miles",
+      "evidence": "described",
+      "tags": ["spider-verse", "gwen"],
+      "sortOrder": { "custom": 6 },
+      "location": { "realm": "", "planet": "Earth", "region": "North America", "place": "New York" },
+      "media": { "type": "film", "title": "Spider-Man: Into the Spider-Verse", "episode": "" },
+      "subEvents": []
     }
   ],
   "connections": [
@@ -74,16 +155,25 @@
       "type": "branch",
       "label": "MCU diverges from real WWII",
       "character": "",
-      "notes": "Super Soldier program is the branch point from real history"
+      "notes": "Super Soldier program is the branch point"
     },
     {
       "id": "conn-2",
-      "sourceEventId": "ev-multiverse-madness",
-      "targetEventId": "ev-multiverse-madness",
+      "sourceEventId": "ev-mom",
+      "targetEventId": "ev-838-illuminati",
       "type": "crossover",
       "label": "",
       "character": "Wanda Maximoff",
-      "notes": "Dreamwalking into Earth-838 variant"
+      "notes": "Dreamwalking into Earth-838"
+    },
+    {
+      "id": "conn-3",
+      "sourceEventId": "ev-endgame",
+      "targetEventId": "ev-battle-ny",
+      "type": "backward",
+      "label": "Time Heist",
+      "character": "Avengers",
+      "notes": "Avengers travel back to 2012 Battle of NY"
     }
   ]
 }

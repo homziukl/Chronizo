@@ -1,5 +1,13 @@
 // events.js — Event CRUD + universe management
 
+export const EVIDENCE_LEVELS = {
+  shown:      { label: '👁 Shown',      opacity: 1.0,  dash: [] },
+  described:  { label: '📝 Described',  opacity: 0.85, dash: [] },
+  mentioned:  { label: '💬 Mentioned',  opacity: 0.65, dash: [] },
+  implied:    { label: '🔮 Implied',    opacity: 0.45, dash: [4, 3] },
+  speculated: { label: '❓ Speculated', opacity: 0.3,  dash: [2, 4] }
+};
+
 export function createEvent(overrides = {}) {
   return {
     id: crypto.randomUUID(),
@@ -7,28 +15,47 @@ export function createEvent(overrides = {}) {
     universe: 'main',
     speculativeUniverse: '',
     date: {
-      exact: null,       // "2012-05-04" or null
-      approximate: '',   // "~2012" or "Before Age of Ultron"
-      season: '',        // "spring" | "summer" | "autumn" | "winter" | ""
-      era: ''            // for historical: "15th century", "Bronze Age"
+      exact: null,         // "2012-05-04" or null
+      approximate: '',     // "~2012" or "Before Age of Ultron"
+      season: '',          // spring | summer | autumn | winter
+      era: '',             // "Bronze Age", "15th century"
+      rangeFrom: '',       // start of date range: "1940" or "1940-06-01"
+      rangeTo: ''          // end of date range: "1945" or "1945-09-02"
     },
     releaseDate: '',
     source: '',
     reasoning: '',
+    evidence: 'shown',     // shown | described | mentioned | implied | speculated
     tags: [],
     sortOrder: { custom: 0 },
-    // Hierarchical location
     location: {
-      realm: '',         // "Nine Realms", "Dark Dimension", "Quantum Realm"
-      planet: '',        // "Earth", "Asgard", "Vormir", "Knowhere"
-      region: '',        // "Europe", "North America", "Wakanda"
-      place: ''          // "New York", "Berlin", "Kamar-Taj"
+      realm: '',
+      planet: '',
+      region: '',
+      place: ''
     },
     media: {
       type: '',
       title: '',
       episode: ''
     },
+    // Sub-events: timeline segments within this event (flashbacks, callbacks)
+    subEvents: [],
+    // Characters involved in this event
+    characters: [],  // ["Steve Rogers", "Tony Stark"] or ["Napoleon Bonaparte"]
+    // Each sub-event: { id, label, date: { approximate, season }, location: { place }, note }
+    ...overrides
+  };
+}
+
+export function createSubEvent(overrides = {}) {
+  return {
+    id: crypto.randomUUID(),
+    label: '',
+    type: 'flashback',  // flashback | callback | postcredits | prologue | epilogue
+    date: { approximate: '', season: '' },
+    location: { place: '' },
+    note: '',
     ...overrides
   };
 }
@@ -36,28 +63,21 @@ export function createEvent(overrides = {}) {
 export function createUniverse(name, color, isMain = false, parentUniverse = null) {
   return {
     id: crypto.randomUUID(),
-    name,
-    color,
-    isMain,
+    name, color, isMain,
     description: '',
-    parentUniverse  // id of parent universe (null = branches from main)
+    parentUniverse
   };
 }
 
-export function addEvent(project, eventData) {
-  // Normalize old string location to new object format
-  if (typeof eventData.location === 'string') {
-    eventData.location = { realm: '', planet: '', region: '', place: eventData.location };
-  }
-  const ev = createEvent(eventData);
+export function addEvent(project, data) {
+  normalizeLocation(data);
+  const ev = createEvent(data);
   project.events.push(ev);
   return ev;
 }
 
 export function updateEvent(project, id, updates) {
-  if (typeof updates.location === 'string') {
-    updates.location = { realm: '', planet: '', region: '', place: updates.location };
-  }
+  normalizeLocation(updates);
   const idx = project.events.findIndex(e => e.id === id);
   if (idx === -1) return null;
   project.events[idx] = { ...project.events[idx], ...updates };
@@ -79,7 +99,6 @@ export function addUniverse(project, name, color, parentUniverse = null) {
 
 export function deleteUniverse(project, id) {
   if (id === 'main') return false;
-  // Re-parent children to this universe's parent
   const dying = project.universes.find(u => u.id === id);
   const newParent = dying?.parentUniverse || 'main';
   project.universes.forEach(u => {
@@ -93,33 +112,70 @@ export function deleteUniverse(project, id) {
   return true;
 }
 
-// Get location string for display
+function normalizeLocation(data) {
+  if (typeof data.location === 'string') {
+    data.location = { realm: '', planet: '', region: '', place: data.location };
+  }
+}
+
 export function getLocationString(ev) {
   if (!ev.location) return '';
   if (typeof ev.location === 'string') return ev.location;
-  const parts = [ev.location.realm, ev.location.planet, ev.location.region, ev.location.place]
-    .filter(Boolean);
-  return parts.join(' › ');
+  return [ev.location.realm, ev.location.planet, ev.location.region, ev.location.place]
+    .filter(Boolean).join(' › ');
 }
 
-// Get a "location key" for grouping events into sub-wires within a universe
 export function getLocationKey(ev) {
   if (!ev.location) return '';
   if (typeof ev.location === 'string') return ev.location;
-  // Group by planet+region (most useful visual grouping)
   return [ev.location.planet, ev.location.region].filter(Boolean).join('/') || '';
 }
 
-// Get numeric sort value from event date
+// Get numeric time value — uses rangeFrom as start if available
 export function getTimeValue(ev) {
-  if (ev.date.exact) {
-    return new Date(ev.date.exact).getTime();
+  if (ev.date.exact) return parseApproxTime(ev.date.exact, ev.date.season);
+  if (ev.date.rangeFrom) return parseApproxTime(ev.date.rangeFrom, ev.date.season);
+  return parseApproxTime(ev.date.approximate, ev.date.season);
+}
+
+// Get end time for range events
+export function getTimeEndValue(ev) {
+  if (ev.date.rangeTo) return parseApproxTime(ev.date.rangeTo, '');
+  return getTimeValue(ev);
+}
+
+export function hasDateRange(ev) {
+  return !!(ev.date.rangeFrom && ev.date.rangeTo);
+}
+
+const MS_PER_YEAR = 365.25 * 24 * 3600000;
+
+function parseApproxTime(str, season) {
+  if (!str) return 0;
+  const seasonOffset = { spring: 0.25, summer: 0.5, autumn: 0.75, winter: 0.0 };
+  const sOff = (seasonOffset[season] || 0) * MS_PER_YEAR;
+
+  // Pure year (including negative/BCE): "-508", "2012", "-10000"
+  if (/^-?\d{1,6}$/.test(str.trim())) {
+    return parseInt(str.trim()) * MS_PER_YEAR + sOff;
   }
-  const yearMatch = ev.date.approximate?.match(/-?\d{1,4}/);
-  if (yearMatch) {
-    const year = parseInt(yearMatch[0]);
-    const seasonOffset = { spring: 0.25, summer: 0.5, autumn: 0.75, winter: 0.0 };
-    return new Date(year, 0).getTime() + (seasonOffset[ev.date.season] || 0) * 365 * 24 * 3600000;
+
+  // ISO-ish date with possible negative year: "-0044-03-15", "1215-06-15"
+  const isoMatch = str.match(/^(-?\d{1,6})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1]);
+    const month = parseInt(isoMatch[2]) - 1; // 0-indexed
+    const day = parseInt(isoMatch[3]);
+    return year * MS_PER_YEAR + (month / 12 + day / 365) * MS_PER_YEAR;
   }
+
+  // Standard date string (let JS parse)
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d.getTime();
+
+  // Extract any year from longer string
+  const embedded = str.match(/-?\d{1,6}/);
+  if (embedded) return parseInt(embedded[0]) * MS_PER_YEAR + sOff;
+
   return 0;
 }

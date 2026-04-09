@@ -1,20 +1,19 @@
 // timeline.js — Canvas renderer for Chronizo
-// Features:
-// - Main axis = immutable time ruler with compressed gaps
-// - Branches grow from parent (main or another branch)
-// - Location sub-wires within same universe = cable bundle
-// - Transparent universe-colored background bands
-// - Backward connections (branch created in 1999, starts at 1956)
+// Full feature set: branches, sub-wires, evidence opacity, date ranges,
+// sub-events, minimap, connect mode, filtering
 
 import { sortEvents } from './sorting.js';
-import { getTimeValue, getLocationKey, getLocationString } from './events.js';
+import { getTimeValue, getTimeEndValue, hasDateRange, getLocationKey,
+         getLocationString, EVIDENCE_LEVELS } from './events.js';
 
 export class TimelineRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.project = null;
+    this.filteredEvents = null; // null = show all
     this.sortMode = 'in-universe';
+    this.connectMode = false;
 
     this.offsetX = 100;
     this.offsetY = 0;
@@ -30,13 +29,14 @@ export class TimelineRenderer {
     this.MAX_GAP = 400;
     this.WIRE_SPREAD = 16;
     this.BRANCH_CURVE = 60;
-    this.LANE_BAND_HEIGHT = 50; // height of transparent background band
 
     this._setupInteraction();
   }
 
   setProject(p) { this.project = p; this.render(); }
   setSortMode(m) { this.sortMode = m; this.render(); }
+  setFilteredEvents(evts) { this.filteredEvents = evts; this.render(); }
+  setConnectMode(on) { this.connectMode = on; this.render(); }
 
   resize() {
     const r = this.canvas.parentElement.getBoundingClientRect();
@@ -63,137 +63,117 @@ export class TimelineRenderer {
     ctx.scale(this.zoom, this.zoom);
 
     this.MAIN_Y = h / (2 * this.zoom);
-    const layout = this._computeLayout();
+    const events = this.filteredEvents || this.project.events;
+    const layout = this._computeLayout(events);
     this.eventPositions = [];
 
-    // 1. Transparent background bands per universe
     this._drawUniverseBands(layout);
-    // 2. Main time axis
-    this._drawMainAxis(layout, w);
-    // 3. Time markers
+    this._drawMainAxis(layout);
     this._drawTimeMarkers(layout);
-    // 4. Branch wires + location sub-wires
     this._drawBranches(layout);
-    // 5. Connections (crossovers, backward links)
+    this._drawDateRanges(layout);
     this._drawConnections();
-    // 6. Event dots
+    // Label collision tracking — collect placed label rects
+    this._labelRects = [];
     this.eventPositions.forEach(ep => this._drawEventDot(ep));
+    this._drawSubEventMarkers(layout);
 
     ctx.restore();
     this._drawLegend(layout);
+    this._drawMinimap(layout);
   }
 
   // ===== LAYOUT =====
-  _computeLayout() {
-    const sorted = sortEvents(this.project.events, this.sortMode);
+  _computeLayout(events) {
+    const sorted = sortEvents(events, this.sortMode);
     const universes = this.project.universes;
     const mainUni = universes.find(u => u.isMain) || universes[0];
 
-    // Build time slots
+    // Time slots
     const slotMap = new Map();
     sorted.forEach(ev => {
       const t = getTimeValue(ev);
-      if (!slotMap.has(t)) {
-        slotMap.set(t, { time: t, label: this._formatDate(ev), events: [] });
-      }
+      if (!slotMap.has(t)) slotMap.set(t, { time: t, label: this._formatDate(ev), events: [] });
       slotMap.get(t).events.push(ev);
     });
     const slots = [...slotMap.values()].sort((a, b) => a.time - b.time);
 
-    // Compute X positions with gap compression
+    // X positions with gap compression
     let currentX = this.PADDING_LEFT;
     slots.forEach((slot, i) => {
       if (i === 0) { slot.x = currentX; return; }
-      const timeDelta = slot.time - slots[i - 1].time;
-      let gap;
-      if (timeDelta <= 0) {
-        gap = this.MIN_GAP;
-      } else {
-        const years = timeDelta / (365.25 * 24 * 3600000);
-        gap = Math.min(this.MAX_GAP, Math.max(this.MIN_GAP, this.MIN_GAP + Math.log10(Math.max(1, years)) * 80));
-      }
+      const dt = slot.time - slots[i - 1].time;
+      const years = dt > 0 ? dt / (365.25 * 24 * 3600000) : 0;
+      const gap = dt <= 0 ? this.MIN_GAP :
+        Math.min(this.MAX_GAP, Math.max(this.MIN_GAP, this.MIN_GAP + Math.log10(Math.max(1, years)) * 80));
       currentX += gap;
       slot.x = currentX;
     });
 
-    // Build branch tree — each universe knows its Y offset and where it starts
-    // Recursive: branch of branch gets offset relative to parent
+    // Branch tree
     const branchInfo = new Map();
     let laneCounter = 0;
-
     const computeBranch = (uni) => {
       if (branchInfo.has(uni.id)) return branchInfo.get(uni.id);
-
       if (uni.isMain) {
         const info = { startX: this.PADDING_LEFT - 40, y: this.MAIN_Y, isMain: true, depth: 0 };
         branchInfo.set(uni.id, info);
         return info;
       }
-
-      // Find parent
       const parentId = uni.parentUniverse || mainUni.id;
       const parentUni = universes.find(u => u.id === parentId) || mainUni;
       const parentInfo = computeBranch(parentUni);
-
-      // Find first event in this universe to determine branch X
       const firstSlot = slots.find(s => s.events.some(e => e.universe === uni.id));
       const startX = firstSlot ? firstSlot.x - this.BRANCH_CURVE : this.PADDING_LEFT;
-
       laneCounter++;
-      const direction = laneCounter % 2 === 1 ? -1 : 1;
-      const offset = Math.ceil(laneCounter / 2) * this.WIRE_SPREAD * 4 * direction;
-
-      const info = {
-        startX,
-        y: parentInfo.y + offset,
-        parentY: parentInfo.y,
-        parentX: startX,
-        isMain: false,
-        depth: parentInfo.depth + 1,
-        parentId
-      };
+      const dir = laneCounter % 2 === 1 ? -1 : 1;
+      const offset = Math.ceil(laneCounter / 2) * this.WIRE_SPREAD * 4 * dir;
+      const info = { startX, y: parentInfo.y + offset, parentY: parentInfo.y, isMain: false, depth: parentInfo.depth + 1, parentId };
       branchInfo.set(uni.id, info);
       return info;
     };
-
     universes.forEach(uni => computeBranch(uni));
 
-    // Build location sub-wire offsets within each universe
-    const locationWires = new Map(); // universeId -> Map<locationKey, wireOffset>
+    // Location sub-wires
+    const locationWires = new Map();
     universes.forEach(uni => {
-      const uniEvents = sorted.filter(e => e.universe === uni.id);
-      const locKeys = [...new Set(uniEvents.map(e => getLocationKey(e)))].filter(Boolean);
-      const wireMap = new Map();
-      locKeys.forEach((key, i) => {
-        const offset = (i - (locKeys.length - 1) / 2) * this.WIRE_SPREAD;
-        wireMap.set(key, offset);
-      });
-      locationWires.set(uni.id, wireMap);
+      const uniEvts = sorted.filter(e => e.universe === uni.id);
+      const keys = [...new Set(uniEvts.map(e => getLocationKey(e)))].filter(Boolean);
+      const wm = new Map();
+      keys.forEach((k, i) => wm.set(k, (i - (keys.length - 1) / 2) * this.WIRE_SPREAD));
+      locationWires.set(uni.id, wm);
     });
 
-    return { slots, branchInfo, universes, mainUni, locationWires, totalWidth: currentX + 200 };
+    // Helper: time value to X position (interpolated)
+    const timeToX = (t) => {
+      if (slots.length === 0) return this.PADDING_LEFT;
+      if (t <= slots[0].time) return slots[0].x;
+      if (t >= slots[slots.length - 1].time) return slots[slots.length - 1].x;
+      for (let i = 1; i < slots.length; i++) {
+        if (t <= slots[i].time) {
+          const ratio = (t - slots[i - 1].time) / (slots[i].time - slots[i - 1].time);
+          return slots[i - 1].x + ratio * (slots[i].x - slots[i - 1].x);
+        }
+      }
+      return slots[slots.length - 1].x;
+    };
+
+    return { slots, branchInfo, universes, mainUni, locationWires, totalWidth: currentX + 200, sorted, timeToX };
   }
 
-  // ===== TRANSPARENT BACKGROUND BANDS =====
+  // ===== UNIVERSE BANDS =====
   _drawUniverseBands(layout) {
     const ctx = this.ctx;
-    const { branchInfo, universes } = layout;
-
-    universes.forEach(uni => {
-      if (uni.isMain) return; // main axis doesn't need a band
-      const info = branchInfo.get(uni.id);
+    layout.universes.forEach(uni => {
+      if (uni.isMain) return;
+      const info = layout.branchInfo.get(uni.id);
       if (!info) return;
-
-      const locWires = layout.locationWires.get(uni.id);
-      const wireCount = locWires ? locWires.size : 0;
-      const bandH = Math.max(this.LANE_BAND_HEIGHT, wireCount * this.WIRE_SPREAD + 20);
-
+      const lw = layout.locationWires.get(uni.id);
+      const bandH = Math.max(50, (lw ? lw.size : 0) * this.WIRE_SPREAD + 20);
       ctx.save();
       ctx.fillStyle = uni.color;
-      ctx.globalAlpha = 0.04; // very subtle
+      ctx.globalAlpha = 0.04;
       ctx.fillRect(info.startX, info.y - bandH / 2, layout.totalWidth - info.startX, bandH);
-
-      // Slightly brighter border
       ctx.globalAlpha = 0.1;
       ctx.strokeStyle = uni.color;
       ctx.lineWidth = 0.5;
@@ -204,29 +184,16 @@ export class TimelineRenderer {
   }
 
   // ===== MAIN AXIS =====
-  _drawMainAxis(layout, viewW) {
+  _drawMainAxis(layout) {
     const ctx = this.ctx;
     const y = this.MAIN_Y;
-    const color = layout.mainUni.color;
-
+    const c = layout.mainUni.color;
     ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(layout.totalWidth, y);
-    ctx.stroke();
-
-    // Bright core
-    ctx.shadowBlur = 4;
-    ctx.strokeStyle = '#ffaa55';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(layout.totalWidth, y);
-    ctx.stroke();
+    ctx.shadowColor = c; ctx.shadowBlur = 14;
+    ctx.strokeStyle = c; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(layout.totalWidth, y); ctx.stroke();
+    ctx.shadowBlur = 4; ctx.strokeStyle = '#ffaa55'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(layout.totalWidth, y); ctx.stroke();
     ctx.restore();
   }
 
@@ -234,37 +201,24 @@ export class TimelineRenderer {
   _drawTimeMarkers(layout) {
     const ctx = this.ctx;
     const y = this.MAIN_Y;
-
     layout.slots.forEach(slot => {
-      ctx.strokeStyle = 'rgba(255, 107, 0, 0.4)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(slot.x, y - 10);
-      ctx.lineTo(slot.x, y + 10);
-      ctx.stroke();
-
+      ctx.strokeStyle = 'rgba(255,107,0,0.4)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(slot.x, y - 10); ctx.lineTo(slot.x, y + 10); ctx.stroke();
       if (slot.label) {
-        ctx.fillStyle = '#8a8778';
-        ctx.font = '9px "Share Tech Mono", monospace';
-        ctx.textAlign = 'center';
+        ctx.fillStyle = '#8a8778'; ctx.font = '9px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
         ctx.fillText(slot.label, slot.x, y + 24);
       }
     });
-
-    // Compression markers
     for (let i = 1; i < layout.slots.length; i++) {
-      const years = (layout.slots[i].time - layout.slots[i - 1].time) / (365.25 * 24 * 3600000);
-      if (years > 50) {
-        const midX = (layout.slots[i - 1].x + layout.slots[i].x) / 2;
-        ctx.fillStyle = '#4a4a5a';
-        ctx.font = '10px "Share Tech Mono", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`⟨ ${Math.round(years)}y ⟩`, midX, this.MAIN_Y + 38);
+      const yrs = (layout.slots[i].time - layout.slots[i - 1].time) / (365.25 * 24 * 3600000);
+      if (yrs > 50) {
+        ctx.fillStyle = '#4a4a5a'; ctx.font = '10px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
+        ctx.fillText(`⟨ ${Math.round(yrs)}y ⟩`, (layout.slots[i - 1].x + layout.slots[i].x) / 2, this.MAIN_Y + 38);
       }
     }
   }
 
-  // ===== BRANCHES + LOCATION SUB-WIRES =====
+  // ===== BRANCHES =====
   _drawBranches(layout) {
     const { slots, branchInfo, universes, locationWires } = layout;
     const ctx = this.ctx;
@@ -272,279 +226,376 @@ export class TimelineRenderer {
     universes.forEach(uni => {
       const info = branchInfo.get(uni.id);
       if (!info) return;
-
       const locWires = locationWires.get(uni.id) || new Map();
 
-      // Collect events with positions
       const uniEvents = [];
       slots.forEach(slot => {
-        const evs = slot.events.filter(e => e.universe === uni.id);
-        evs.forEach(ev => {
-          const locKey = getLocationKey(ev);
-          const locOffset = locWires.get(locKey) || 0;
-          const y = info.y + locOffset;
-          uniEvents.push({ ev, x: slot.x, y, locKey });
+        slot.events.filter(e => e.universe === uni.id).forEach(ev => {
+          const locOffset = locWires.get(getLocationKey(ev)) || 0;
+          uniEvents.push({ ev, x: slot.x, y: info.y + locOffset });
         });
       });
 
       if (uniEvents.length === 0 && !info.isMain) return;
 
       if (!info.isMain) {
-        // Draw branch curve from parent to this lane
         this._drawBranchCurve(info.startX, info.parentY, info.y, uni.color);
-
-        // Draw lane wire(s)
         const lastX = uniEvents.length > 0 ? uniEvents[uniEvents.length - 1].x + 60 : info.startX + 200;
-        const wireStartX = info.startX + this.BRANCH_CURVE;
+        const wireStart = info.startX + this.BRANCH_CURVE;
 
-        // If multiple locations, draw separate sub-wires
         if (locWires.size > 1) {
-          locWires.forEach((offset, locKey) => {
-            const wireY = info.y + offset;
-            this._drawWire(wireStartX, wireY, lastX, uni.color, 0.5, uni.id + locKey);
+          locWires.forEach((off, key) => {
+            this._drawWire(wireStart, info.y + off, lastX, uni.color, 0.5, uni.id + key);
+            if (key) {
+              ctx.save(); ctx.fillStyle = uni.color; ctx.globalAlpha = 0.5;
+              ctx.font = '8px "Share Tech Mono",monospace'; ctx.textAlign = 'left';
+              ctx.fillText(key, wireStart + 4, info.y + off - 4); ctx.restore();
+            }
           });
         } else {
-          this._drawWire(wireStartX, info.y, lastX, uni.color, 0.6, uni.id);
-        }
-
-        // Location sub-wire labels
-        if (locWires.size > 1) {
-          locWires.forEach((offset, locKey) => {
-            if (!locKey) return;
-            ctx.save();
-            ctx.fillStyle = uni.color;
-            ctx.globalAlpha = 0.5;
-            ctx.font = '8px "Share Tech Mono", monospace';
-            ctx.textAlign = 'left';
-            ctx.fillText(locKey, wireStartX + 4, info.y + offset - 4);
-            ctx.restore();
-          });
+          this._drawWire(wireStart, info.y, lastX, uni.color, 0.6, uni.id);
         }
       }
 
-      // Register event positions
       uniEvents.forEach(ue => {
+        const evi = EVIDENCE_LEVELS[ue.ev.evidence] || EVIDENCE_LEVELS.shown;
         this.eventPositions.push({
-          id: ue.ev.id,
-          x: ue.x,
-          y: ue.y,
-          radius: this.EVENT_RADIUS,
-          color: uni.color,
-          event: ue.ev,
-          universe: uni
+          id: ue.ev.id, x: ue.x, y: ue.y,
+          radius: this.EVENT_RADIUS, color: uni.color,
+          event: ue.ev, universe: uni,
+          opacity: evi.opacity, dash: evi.dash
         });
       });
     });
   }
 
+  // ===== DATE RANGES (horizontal bars) =====
+  _drawDateRanges(layout) {
+    const ctx = this.ctx;
+    this.eventPositions.forEach(ep => {
+      if (!hasDateRange(ep.event)) return;
+      const startX = ep.x;
+      const endTime = getTimeEndValue(ep.event);
+      const endX = layout.timeToX(endTime);
+      if (endX <= startX + 5) return;
+
+      ctx.save();
+      ctx.fillStyle = ep.color;
+      ctx.globalAlpha = (ep.opacity || 1) * 0.15;
+      const barH = 8;
+      ctx.fillRect(startX, ep.y - barH / 2, endX - startX, barH);
+
+      // Border
+      ctx.globalAlpha = (ep.opacity || 1) * 0.4;
+      ctx.strokeStyle = ep.color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(startX, ep.y - barH / 2, endX - startX, barH);
+      ctx.restore();
+    });
+  }
+
+  // ===== SUB-EVENT MARKERS =====
+  _drawSubEventMarkers(layout) {
+    const ctx = this.ctx;
+    this.eventPositions.forEach(ep => {
+      const subs = ep.event.subEvents;
+      if (!subs || subs.length === 0) return;
+
+      subs.forEach(sub => {
+        if (!sub.date?.approximate) return;
+        // Find X position for sub-event date
+        const subTime = this._parseSubTime(sub.date.approximate);
+        if (!subTime) return;
+        const subX = layout.timeToX(subTime);
+
+        // Draw small diamond marker
+        ctx.save();
+        ctx.fillStyle = ep.color;
+        ctx.globalAlpha = 0.5;
+        const s = 4;
+        ctx.beginPath();
+        ctx.moveTo(subX, ep.y - s);
+        ctx.lineTo(subX + s, ep.y);
+        ctx.lineTo(subX, ep.y + s);
+        ctx.lineTo(subX - s, ep.y);
+        ctx.closePath();
+        ctx.fill();
+
+        // Dashed line connecting sub-event to main event
+        ctx.strokeStyle = ep.color;
+        ctx.globalAlpha = 0.25;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(subX, ep.y);
+        ctx.lineTo(ep.x, ep.y);
+        ctx.stroke();
+
+        // Label
+        ctx.globalAlpha = 0.6;
+        ctx.font = '8px "Share Tech Mono",monospace';
+        ctx.textAlign = 'center';
+        const typeIcons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕' };
+        ctx.fillText(`${typeIcons[sub.type] || ''} ${sub.label || sub.date.approximate}`, subX, ep.y - 8);
+        ctx.restore();
+      });
+    });
+  }
+
+  _parseSubTime(str) {
+    if (!str) return null;
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return d.getTime();
+    const m = str.match(/-?\d{1,4}/);
+    return m ? new Date(parseInt(m[0]), 0).getTime() : null;
+  }
+
   _drawWire(startX, y, endX, color, alpha, seed) {
     const ctx = this.ctx;
     ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 6;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.globalAlpha = alpha;
-
-    // Slight organic wave using seed for variation
-    const hash = seed.length * 7;
-    ctx.beginPath();
-    ctx.moveTo(startX, y);
-    for (let x = startX; x <= endX; x += 15) {
-      const wave = Math.sin(x * 0.01 + hash * 0.3) * 2;
-      ctx.lineTo(x, y + wave);
-    }
-    ctx.stroke();
-    ctx.restore();
+    ctx.shadowColor = color; ctx.shadowBlur = 6;
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = alpha;
+    const h = seed.length * 7;
+    ctx.beginPath(); ctx.moveTo(startX, y);
+    for (let x = startX; x <= endX; x += 15) ctx.lineTo(x, y + Math.sin(x * 0.01 + h * 0.3) * 2);
+    ctx.stroke(); ctx.restore();
   }
 
   _drawBranchCurve(startX, parentY, targetY, color) {
     const ctx = this.ctx;
-    const endX = startX + this.BRANCH_CURVE;
-
     ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.globalAlpha = 0.7;
-
-    ctx.beginPath();
-    ctx.moveTo(startX, parentY);
-    ctx.bezierCurveTo(
-      startX + this.BRANCH_CURVE * 0.4, parentY,
-      startX + this.BRANCH_CURVE * 0.6, targetY,
-      endX, targetY
-    );
+    ctx.shadowColor = color; ctx.shadowBlur = 8;
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.7;
+    ctx.beginPath(); ctx.moveTo(startX, parentY);
+    ctx.bezierCurveTo(startX + this.BRANCH_CURVE * 0.4, parentY, startX + this.BRANCH_CURVE * 0.6, targetY, startX + this.BRANCH_CURVE, targetY);
     ctx.stroke();
-
-    // Branch point dot
-    ctx.beginPath();
-    ctx.arc(startX, parentY, 3, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.9;
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(startX, parentY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = color; ctx.globalAlpha = 0.9; ctx.fill();
     ctx.restore();
   }
 
-  // ===== EVENT DOTS =====
+  // ===== EVENT DOTS (with evidence opacity + label collision avoidance) =====
   _drawEventDot(ep) {
     const ctx = this.ctx;
     const isHovered = this.hoveredEvent === ep.id;
     const r = isHovered ? ep.radius * 1.8 : ep.radius;
+    const alpha = ep.opacity || 1;
+    const dash = ep.dash || [];
 
     ctx.save();
     ctx.shadowColor = ep.color;
     ctx.shadowBlur = isHovered ? 24 : 10;
 
+    if (this.connectMode) {
+      ctx.shadowBlur = 16;
+      ctx.shadowColor = '#a855f7';
+    }
+
     // Glow ring
-    ctx.beginPath();
-    ctx.arc(ep.x, ep.y, r + 2, 0, Math.PI * 2);
-    ctx.fillStyle = ep.color;
-    ctx.globalAlpha = 0.2;
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(ep.x, ep.y, r + 2, 0, Math.PI * 2);
+    ctx.fillStyle = ep.color; ctx.globalAlpha = alpha * 0.2; ctx.fill();
 
     // Main dot
-    ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.arc(ep.x, ep.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = isHovered ? '#fff' : ep.color;
-    ctx.fill();
+    ctx.globalAlpha = alpha;
+    if (dash.length > 0) {
+      ctx.setLineDash(dash);
+      ctx.strokeStyle = ep.color; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(ep.x, ep.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = alpha * 0.4;
+      ctx.fillStyle = ep.color;
+      ctx.beginPath(); ctx.arc(ep.x, ep.y, r, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillStyle = isHovered ? '#fff' : ep.color;
+      ctx.beginPath(); ctx.arc(ep.x, ep.y, r, 0, Math.PI * 2); ctx.fill();
+    }
 
     // Dark core
-    ctx.beginPath();
-    ctx.arc(ep.x, ep.y, r * 0.35, 0, Math.PI * 2);
-    ctx.fillStyle = '#0a0a0f';
-    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(ep.x, ep.y, r * 0.35, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a0a0f'; ctx.fill();
     ctx.restore();
 
-    // Title
-    ctx.fillStyle = isHovered ? '#fff' : '#e0ddd4';
-    ctx.font = `${isHovered ? 11 : 10}px "Share Tech Mono", monospace`;
-    ctx.textAlign = 'center';
+    // ===== Label with collision avoidance =====
     const label = ep.event.title.length > 24 ? ep.event.title.slice(0, 22) + '…' : ep.event.title;
-    const labelY = ep.y < this.MAIN_Y ? ep.y - r - 8 : ep.y + r + 14;
-    ctx.fillText(label, ep.x, labelY);
+    const fontSize = isHovered ? 11 : 10;
+    ctx.font = `${fontSize}px "Share Tech Mono",monospace`;
+    const textW = ctx.measureText(label).width;
+    const textH = fontSize + 2;
 
-    // Location hint
-    const loc = getLocationString(ep.event);
-    if (loc && isHovered) {
-      ctx.fillStyle = '#8a8778';
-      ctx.font = '8px "Share Tech Mono", monospace';
-      ctx.fillText('📍 ' + loc, ep.x, labelY + (ep.y < this.MAIN_Y ? -12 : 12));
+    // Try positions: below, above, right-below, left-below, right-above, left-above
+    const candidates = [
+      { x: ep.x - textW / 2, y: ep.y + r + 4 },                    // below center
+      { x: ep.x - textW / 2, y: ep.y - r - textH - 2 },            // above center
+      { x: ep.x + r + 4,     y: ep.y + r + 4 },                    // right-below
+      { x: ep.x - textW - r - 4, y: ep.y + r + 4 },                // left-below
+      { x: ep.x + r + 4,     y: ep.y - r - textH - 2 },            // right-above
+      { x: ep.x - textW - r - 4, y: ep.y - r - textH - 2 },        // left-above
+      { x: ep.x - textW / 2, y: ep.y + r + textH + 8 },            // far below
+      { x: ep.x - textW / 2, y: ep.y - r - textH * 2 - 4 },       // far above
+    ];
+
+    // Default: prefer below if above main axis, above if below
+    if (ep.y >= this.MAIN_Y) {
+      // swap: try above first
+      [candidates[0], candidates[1]] = [candidates[1], candidates[0]];
+    }
+
+    let bestPos = candidates[0]; // fallback
+    for (const pos of candidates) {
+      const rect = { x: pos.x - 2, y: pos.y - 1, w: textW + 4, h: textH + 2 };
+      if (!this._overlapsAny(rect)) {
+        bestPos = pos;
+        this._labelRects.push(rect);
+        break;
+      }
+    }
+
+    ctx.fillStyle = isHovered ? '#fff' : `rgba(224,221,212,${alpha})`;
+    ctx.textAlign = 'left';
+    ctx.fillText(label, bestPos.x, bestPos.y + textH - 2);
+
+    // Sub-event count badge
+    if (ep.event.subEvents?.length > 0) {
+      ctx.fillStyle = ep.color; ctx.globalAlpha = 0.7;
+      ctx.font = '8px "Share Tech Mono",monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`+${ep.event.subEvents.length}`, ep.x + r + 8, ep.y + 3);
     }
   }
 
-  // ===== CONNECTIONS (crossovers, backward links) =====
+  _overlapsAny(rect) {
+    for (const r of this._labelRects) {
+      if (rect.x < r.x + r.w && rect.x + rect.w > r.x &&
+          rect.y < r.y + r.h && rect.y + rect.h > r.y) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ===== CONNECTIONS =====
   _drawConnections() {
     if (!this.project.connections) return;
     const ctx = this.ctx;
+    const colors = { branch: '#d4a843', crossover: '#a855f7', merge: '#27ae60', backward: '#e74c3c', reference: '#8a8778' };
 
     this.project.connections.forEach(conn => {
       const src = this.eventPositions.find(ep => ep.id === conn.sourceEventId);
       const tgt = this.eventPositions.find(ep => ep.id === conn.targetEventId);
       if (!src || !tgt) return;
 
-      const colors = {
-        branch: '#d4a843',
-        crossover: '#a855f7',
-        merge: '#27ae60',
-        reference: '#8a8778',
-        backward: '#e74c3c'  // backward time connection
-      };
-
       ctx.save();
       ctx.strokeStyle = colors[conn.type] || '#d4a843';
       ctx.lineWidth = conn.type === 'crossover' ? 2 : 1.5;
-      ctx.shadowColor = ctx.strokeStyle;
-      ctx.shadowBlur = 6;
-
-      // Dashed for reference, dotted for backward
+      ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
       if (conn.type === 'reference') ctx.setLineDash([4, 4]);
       else if (conn.type === 'backward') ctx.setLineDash([2, 3]);
-      else ctx.setLineDash([]);
 
-      // Determine if this is a backward connection (target is earlier in time)
-      const isBackward = tgt.x < src.x;
-
-      ctx.beginPath();
-      ctx.moveTo(src.x, src.y);
-
-      if (isBackward) {
-        // Backward arc — goes up/down and back in time
-        const midX = (src.x + tgt.x) / 2;
+      const back = tgt.x < src.x;
+      ctx.beginPath(); ctx.moveTo(src.x, src.y);
+      if (back) {
         const arcY = Math.min(src.y, tgt.y) - 60 - Math.abs(src.x - tgt.x) * 0.1;
         ctx.bezierCurveTo(src.x, arcY, tgt.x, arcY, tgt.x, tgt.y);
       } else {
-        // Forward curve
-        const cpX = (src.x + tgt.x) / 2;
         const cpY = Math.min(src.y, tgt.y) - 40;
-        ctx.quadraticCurveTo(cpX, cpY, tgt.x, tgt.y);
+        ctx.quadraticCurveTo((src.x + tgt.x) / 2, cpY, tgt.x, tgt.y);
       }
       ctx.stroke();
 
-      // Arrow at target
-      const angle = Math.atan2(tgt.y - src.y, tgt.x - src.x);
+      // Arrow
+      const a = Math.atan2(tgt.y - src.y, tgt.x - src.x);
       ctx.fillStyle = ctx.strokeStyle;
-      ctx.beginPath();
-      ctx.moveTo(tgt.x, tgt.y);
-      ctx.lineTo(tgt.x - 6 * Math.cos(angle - 0.4), tgt.y - 6 * Math.sin(angle - 0.4));
-      ctx.lineTo(tgt.x - 6 * Math.cos(angle + 0.4), tgt.y - 6 * Math.sin(angle + 0.4));
-      ctx.closePath();
-      ctx.fill();
+      ctx.beginPath(); ctx.moveTo(tgt.x, tgt.y);
+      ctx.lineTo(tgt.x - 6 * Math.cos(a - 0.4), tgt.y - 6 * Math.sin(a - 0.4));
+      ctx.lineTo(tgt.x - 6 * Math.cos(a + 0.4), tgt.y - 6 * Math.sin(a + 0.4));
+      ctx.closePath(); ctx.fill();
 
-      // Label
       if (conn.label || conn.character) {
-        const midX = (src.x + tgt.x) / 2;
-        const midY = isBackward
-          ? Math.min(src.y, tgt.y) - 60 - Math.abs(src.x - tgt.x) * 0.05
-          : Math.min(src.y, tgt.y) - 44;
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.font = '9px "Share Tech Mono", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(conn.character || conn.label, midX, midY);
+        const mx = (src.x + tgt.x) / 2;
+        const my = back ? Math.min(src.y, tgt.y) - 60 - Math.abs(src.x - tgt.x) * 0.05 : Math.min(src.y, tgt.y) - 44;
+        ctx.fillStyle = ctx.strokeStyle; ctx.font = '9px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
+        ctx.fillText(conn.character || conn.label, mx, my);
       }
       ctx.restore();
     });
   }
 
+  // ===== MINIMAP =====
+  _drawMinimap(layout) {
+    const mm = document.getElementById('minimap');
+    if (!mm) return;
+    const mc = mm.getContext('2d');
+    const mw = 200, mh = 100;
+    mm.width = mw; mm.height = mh;
+
+    mc.fillStyle = 'rgba(10,10,15,0.9)';
+    mc.fillRect(0, 0, mw, mh);
+
+    if (this.eventPositions.length === 0) return;
+
+    // Compute bounds
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    this.eventPositions.forEach(ep => {
+      minX = Math.min(minX, ep.x); maxX = Math.max(maxX, ep.x);
+      minY = Math.min(minY, ep.y); maxY = Math.max(maxY, ep.y);
+    });
+    const pad = 40;
+    minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+    const scaleX = mw / (maxX - minX || 1);
+    const scaleY = mh / (maxY - minY || 1);
+    const scale = Math.min(scaleX, scaleY);
+
+    // Draw dots
+    this.eventPositions.forEach(ep => {
+      const x = (ep.x - minX) * scale;
+      const y = (ep.y - minY) * scale;
+      mc.fillStyle = ep.color;
+      mc.globalAlpha = ep.opacity || 1;
+      mc.fillRect(x - 1, y - 1, 2, 2);
+    });
+
+    // Draw viewport rectangle
+    const vw = this.canvas.width / devicePixelRatio;
+    const vh = this.canvas.height / devicePixelRatio;
+    const vx1 = (-this.offsetX / this.zoom - minX) * scale;
+    const vy1 = (-this.offsetY / this.zoom - minY) * scale;
+    const vx2 = vw / this.zoom * scale;
+    const vy2 = vh / this.zoom * scale;
+    mc.globalAlpha = 0.4;
+    mc.strokeStyle = '#ff6b00';
+    mc.lineWidth = 1;
+    mc.strokeRect(vx1, vy1, vx2, vy2);
+  }
+
   // ===== GRID =====
   _drawGrid(w, h) {
     const ctx = this.ctx;
-    ctx.strokeStyle = 'rgba(42, 42, 58, 0.3)';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = 'rgba(42,42,58,0.3)'; ctx.lineWidth = 0.5;
     const step = 50 * this.zoom;
-    const ox = this.offsetX % step;
-    const oy = this.offsetY % step;
-    for (let x = ox; x < w; x += step) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-    }
-    for (let y = oy; y < h; y += step) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
+    const ox = this.offsetX % step, oy = this.offsetY % step;
+    for (let x = ox; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+    for (let y = oy; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
   }
 
   // ===== LEGEND =====
   _drawLegend(layout) {
     const ctx = this.ctx;
     let ly = 16;
-    ctx.font = '10px "Orbitron", sans-serif';
+    ctx.font = '10px "Orbitron",sans-serif';
     layout.universes.forEach(uni => {
-      const parent = uni.parentUniverse
-        ? layout.universes.find(u => u.id === uni.parentUniverse)
-        : null;
-      ctx.fillStyle = uni.color;
-      ctx.fillRect(10, ly - 6, 8, 8);
-      ctx.fillStyle = '#e0ddd4';
-      ctx.textAlign = 'left';
-      const suffix = parent ? ` ← ${parent.name}` : '';
-      ctx.fillText(uni.name + suffix, 24, ly + 1);
+      const p = uni.parentUniverse ? layout.universes.find(u => u.id === uni.parentUniverse) : null;
+      ctx.fillStyle = uni.color; ctx.fillRect(10, ly - 6, 8, 8);
+      ctx.fillStyle = '#e0ddd4'; ctx.textAlign = 'left';
+      ctx.fillText(uni.name + (p ? ` ← ${p.name}` : ''), 24, ly + 1);
       ly += 18;
     });
   }
 
   _formatDate(ev) {
     if (ev.date.exact) return ev.date.exact;
+    if (ev.date.rangeFrom && ev.date.rangeTo) return `${ev.date.rangeFrom} — ${ev.date.rangeTo}`;
+    if (ev.date.rangeFrom) return `${ev.date.rangeFrom} —`;
     let s = ev.date.approximate || '';
     if (ev.date.season) {
       const icons = { spring: '🌱', summer: '☀️', autumn: '🍂', winter: '❄️' };
@@ -556,33 +607,25 @@ export class TimelineRenderer {
 
   // ===== INTERACTION =====
   _setupInteraction() {
-    let isDragging = false;
-    let lastX = 0, lastY = 0;
+    let isDragging = false, lastX = 0, lastY = 0;
 
-    this.canvas.addEventListener('mousedown', (e) => {
-      isDragging = true; lastX = e.clientX; lastY = e.clientY;
-    });
+    this.canvas.addEventListener('mousedown', (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
     window.addEventListener('mousemove', (e) => {
       if (isDragging) {
-        this.offsetX += e.clientX - lastX;
-        this.offsetY += e.clientY - lastY;
-        lastX = e.clientX; lastY = e.clientY;
-        this.render();
-      } else {
-        this._handleHover(e);
-      }
+        this.offsetX += e.clientX - lastX; this.offsetY += e.clientY - lastY;
+        lastX = e.clientX; lastY = e.clientY; this.render();
+      } else this._handleHover(e);
     });
     window.addEventListener('mouseup', () => { isDragging = false; });
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const factor = e.deltaY > 0 ? 0.9 : 1.1;
-      const rect = this.canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      this.offsetX = mx - (mx - this.offsetX) * factor;
-      this.offsetY = my - (my - this.offsetY) * factor;
-      this.zoom = Math.max(0.1, Math.min(5, this.zoom * factor));
+      const f = e.deltaY > 0 ? 0.9 : 1.1;
+      const r = this.canvas.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      this.offsetX = mx - (mx - this.offsetX) * f;
+      this.offsetY = my - (my - this.offsetY) * f;
+      this.zoom = Math.max(0.1, Math.min(5, this.zoom * f));
       this.render();
     }, { passive: false });
 
@@ -604,9 +647,9 @@ export class TimelineRenderer {
   }
 
   _hitTest(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left - this.offsetX) / this.zoom;
-    const my = (e.clientY - rect.top - this.offsetY) / this.zoom;
+    const r = this.canvas.getBoundingClientRect();
+    const mx = (e.clientX - r.left - this.offsetX) / this.zoom;
+    const my = (e.clientY - r.top - this.offsetY) / this.zoom;
     for (const ep of this.eventPositions) {
       const dx = mx - ep.x, dy = my - ep.y;
       if (dx * dx + dy * dy < (ep.radius + 5) ** 2) return ep;
@@ -617,7 +660,10 @@ export class TimelineRenderer {
   _showTooltip(ep, cx, cy) {
     const tt = document.getElementById('event-tooltip');
     const ev = ep.event;
+    const evi = EVIDENCE_LEVELS[ev.evidence] || EVIDENCE_LEVELS.shown;
+
     let h = `<div class="tt-title">${ev.title}</div>`;
+    h += `<span class="tt-evidence ${ev.evidence || 'shown'}">${evi.label}</span>`;
     h += `<div class="tt-meta">${ep.universe.name}</div>`;
     if (ev.speculativeUniverse) {
       const su = this.project.universes.find(u => u.id === ev.speculativeUniverse);
@@ -631,14 +677,21 @@ export class TimelineRenderer {
     if (ev.source) h += `<div class="tt-meta">📖 ${ev.source}</div>`;
     if (ev.reasoning) h += `<div class="tt-reasoning">"${ev.reasoning}"</div>`;
 
+    // Sub-events
+    if (ev.subEvents?.length > 0) {
+      const icons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕' };
+      ev.subEvents.forEach(s => {
+        h += `<div class="tt-sub">${icons[s.type] || '•'} ${s.label || s.type} ${s.date?.approximate ? '(' + s.date.approximate + ')' : ''}</div>`;
+      });
+    }
+
     tt.innerHTML = h;
     tt.classList.remove('hidden');
     const vp = this.canvas.parentElement.getBoundingClientRect();
     let x = cx - vp.left + 16, y = cy - vp.top - 10;
     if (x + 320 > vp.width) x = cx - vp.left - 330;
     if (y + 150 > vp.height) y = vp.height - 160;
-    tt.style.left = x + 'px';
-    tt.style.top = y + 'px';
+    tt.style.left = x + 'px'; tt.style.top = y + 'px';
   }
 
   onEventClick = null;

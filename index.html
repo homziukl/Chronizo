@@ -17,13 +17,33 @@
       <div class="topbar-right">
         <button id="btn-new" title="New project">✦ New</button>
         <button id="btn-load" title="Load JSON file">⟐ Load</button>
+        <button id="btn-merge" title="Merge another timeline into current">⊕ Merge</button>
         <button id="btn-save" title="Save as JSON">⟑ Save</button>
+        <button id="btn-csv-export" title="Export to CSV">📊 CSV↓</button>
+        <button id="btn-csv-import" title="Import from CSV">📊 CSV↑</button>
+        <button id="btn-example" title="Load MCU example">☆ MCU</button>
+        <button id="btn-example-history" title="Load World History">☆ History</button>
+        <span class="separator">|</span>
         <button id="btn-add-event" title="Add event">+ Event</button>
         <button id="btn-add-universe" title="Add universe">+ Universe</button>
+        <button id="btn-connect" title="Connect two events">⟷ Connect</button>
+        <span class="separator">|</span>
         <select id="sort-mode">
           <option value="in-universe">In-Universe Chronology</option>
           <option value="release">Release Order</option>
           <option value="custom">Custom Order</option>
+        </select>
+        <input type="text" id="search-box" placeholder="🔍 Search..." class="search-input">
+        <select id="filter-universe" title="Filter by universe">
+          <option value="">All Universes</option>
+        </select>
+        <select id="filter-evidence" title="Filter by evidence">
+          <option value="">All Evidence</option>
+          <option value="shown">👁 Shown</option>
+          <option value="described">📝 Described</option>
+          <option value="mentioned">💬 Mentioned</option>
+          <option value="implied">🔮 Implied</option>
+          <option value="speculated">❓ Speculated</option>
         </select>
       </div>
     </header>
@@ -31,8 +51,14 @@
     <!-- Main canvas area -->
     <div id="timeline-viewport">
       <canvas id="timeline-canvas"></canvas>
-      <!-- Tooltip on hover -->
       <div id="event-tooltip" class="tooltip hidden"></div>
+      <!-- Connection mode banner -->
+      <div id="connect-banner" class="banner hidden">
+        🔗 Connection mode: click SOURCE event, then TARGET event
+        <button id="btn-cancel-connect">Cancel</button>
+      </div>
+      <!-- Minimap -->
+      <canvas id="minimap"></canvas>
     </div>
 
     <!-- Side panel for event editing -->
@@ -64,6 +90,12 @@
           <label>Approximate (year or text)
             <input type="text" id="ev-date-approx" placeholder="~2012 or 'Before Age of Ultron'">
           </label>
+          <label>Date Range — From
+            <input type="text" id="ev-date-from" placeholder="1940 or 1940-06-01">
+          </label>
+          <label>Date Range — To
+            <input type="text" id="ev-date-to" placeholder="1945 or 1945-09-02">
+          </label>
           <label>Season
             <select id="ev-season">
               <option value="">— unknown —</option>
@@ -73,10 +105,52 @@
               <option value="winter">❄️ Winter</option>
             </select>
           </label>
+          <label>Era
+            <input type="text" id="ev-date-era" placeholder="Bronze Age, 15th century...">
+          </label>
         </fieldset>
 
         <label>Release Date (real world)
           <input type="date" id="ev-release">
+        </label>
+
+        <fieldset>
+          <legend>Media Source</legend>
+          <label>Type
+            <select id="ev-media-type">
+              <option value="">— none —</option>
+              <option value="film">🎬 Film</option>
+              <option value="series">📺 Series</option>
+              <option value="comic">📖 Comic</option>
+              <option value="game">🎮 Game</option>
+              <option value="book">📚 Book</option>
+              <option value="historical">🏛 Historical</option>
+              <option value="other">📄 Other</option>
+            </select>
+          </label>
+          <label>Title
+            <input type="text" id="ev-media-title" placeholder="Avengers: Endgame">
+          </label>
+          <label>Episode / Issue
+            <input type="text" id="ev-media-episode" placeholder="S01E05 or #127">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Evidence Strength</legend>
+          <label>
+            <select id="ev-evidence">
+              <option value="shown">👁 Shown — directly depicted on screen/page</option>
+              <option value="described">📝 Described — narrated or explained by character</option>
+              <option value="mentioned">💬 Mentioned — brief reference in dialogue</option>
+              <option value="implied">🔮 Implied — context clues suggest it happened</option>
+              <option value="speculated">❓ Speculated — fan theory / interpretation</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <label>Source / Reference
+          <input type="text" id="ev-source" placeholder="Comic issue, historical document, URL...">
         </label>
 
         <label>Reasoning
@@ -87,13 +161,17 @@
           <input type="text" id="ev-tags" placeholder="avengers, invasion, earth">
         </label>
 
+        <label>Characters (comma separated)
+          <input type="text" id="ev-characters" placeholder="Steve Rogers, Tony Stark, Napoleon...">
+        </label>
+
         <fieldset>
           <legend>Location</legend>
           <label>Realm / Dimension
-            <input type="text" id="ev-loc-realm" placeholder="Nine Realms, Dark Dimension, Quantum Realm...">
+            <input type="text" id="ev-loc-realm" placeholder="Nine Realms, Dark Dimension...">
           </label>
           <label>Planet / World
-            <input type="text" id="ev-loc-planet" placeholder="Earth, Asgard, Vormir, Knowhere...">
+            <input type="text" id="ev-loc-planet" placeholder="Earth, Asgard, Vormir...">
           </label>
           <label>Region / Territory
             <input type="text" id="ev-loc-region" placeholder="Europe, Wakanda, Sokovia...">
@@ -101,6 +179,13 @@
           <label>Place / City
             <input type="text" id="ev-loc-place" placeholder="New York, Berlin, Kamar-Taj...">
           </label>
+        </fieldset>
+
+        <!-- Sub-events / timeline segments within this event -->
+        <fieldset id="sub-events-fieldset">
+          <legend>Timeline Segments (flashbacks, callbacks)</legend>
+          <div id="sub-events-list"></div>
+          <button type="button" id="btn-add-sub-event" class="small-btn">+ Add segment</button>
         </fieldset>
 
         <label>Custom Sort Order
@@ -129,7 +214,34 @@
       <button id="btn-close-dialog">Close</button>
     </dialog>
 
-    <!-- Hidden file input -->
+    <!-- Connection type dialog -->
+    <dialog id="connection-dialog">
+      <h2>Create Connection</h2>
+      <p id="conn-info"></p>
+      <label>Type
+        <select id="conn-type">
+          <option value="branch">🌿 Branch — fiction diverges from source</option>
+          <option value="crossover">🌀 Crossover — character/object crosses universes</option>
+          <option value="merge">🔀 Merge — timelines converge</option>
+          <option value="backward">⏪ Backward — retroactive connection in time</option>
+          <option value="reference">📎 Reference — soft nod / easter egg</option>
+        </select>
+      </label>
+      <label>Character / Object
+        <input type="text" id="conn-character" placeholder="Spider-Man, Infinity Stone...">
+      </label>
+      <label>Label
+        <input type="text" id="conn-label" placeholder="Short description...">
+      </label>
+      <label>Notes
+        <textarea id="conn-notes" rows="2" placeholder="Additional context..."></textarea>
+      </label>
+      <div class="form-actions">
+        <button id="btn-save-conn">Create Connection</button>
+        <button id="btn-cancel-conn">Cancel</button>
+      </div>
+    </dialog>
+
     <input type="file" id="file-input" accept=".json" class="hidden">
   </div>
 

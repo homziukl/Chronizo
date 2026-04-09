@@ -320,3 +320,153 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
 ::-webkit-scrollbar-track { background: var(--bg-dark); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-orange); }
+
+/* ===== New elements ===== */
+
+.separator {
+  color: var(--border);
+  font-size: 14px;
+  user-select: none;
+}
+
+.search-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 3px;
+  width: 140px;
+  transition: all 0.15s;
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-orange);
+  box-shadow: 0 0 6px var(--glow-orange);
+  width: 200px;
+}
+
+/* ===== Connection banner ===== */
+.banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid #a855f7;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 12px;
+  color: #e0ddd4;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  backdrop-filter: blur(4px);
+}
+.banner button {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+/* ===== Minimap ===== */
+#minimap {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 200px;
+  height: 100px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(10, 10, 15, 0.85);
+  pointer-events: none;
+  z-index: 15;
+}
+
+/* ===== Connection dialog ===== */
+#connection-dialog {
+  background: var(--bg-panel);
+  border: 1px solid #a855f7;
+  border-radius: 8px;
+  color: var(--text);
+  padding: 24px;
+  min-width: 380px;
+  box-shadow: 0 0 40px rgba(0,0,0,0.8);
+}
+#connection-dialog::backdrop { background: rgba(0,0,0,0.7); }
+#connection-dialog h2 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: #a855f7;
+  margin-bottom: 12px;
+}
+#connection-dialog label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+#connection-dialog input,
+#connection-dialog select,
+#connection-dialog textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+#conn-info {
+  color: var(--accent-gold);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+/* ===== Sub-events ===== */
+.sub-event-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 80px 30px;
+  gap: 6px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.sub-event-row select,
+.sub-event-row input {
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.sub-event-row button {
+  font-size: 11px;
+  padding: 2px 6px;
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+.small-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  margin-top: 4px;
+}
+
+/* ===== Evidence indicator in tooltip ===== */
+.tt-evidence {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+.tt-evidence.shown { background: rgba(39,174,96,0.3); color: #27ae60; }
+.tt-evidence.described { background: rgba(52,152,219,0.3); color: #3498db; }
+.tt-evidence.mentioned { background: rgba(212,168,67,0.3); color: #d4a843; }
+.tt-evidence.implied { background: rgba(168,85,247,0.3); color: #a855f7; }
+.tt-evidence.speculated { background: rgba(231,76,60,0.3); color: #e74c3c; }
+
+/* ===== Sub-events in tooltip ===== */
+.tt-sub { color: var(--text-dim); font-size: 11px; padding-left: 8px; border-left: 2px solid var(--border); margin: 4px 0; }
