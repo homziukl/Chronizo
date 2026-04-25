@@ -52,10 +52,11 @@ export function createSubEvent(overrides = {}) {
   return {
     id: crypto.randomUUID(),
     label: '',
-    type: 'flashback',  // flashback | callback | postcredits | prologue | epilogue
+    type: 'flashback',  // flashback | callback | postcredits | prologue | epilogue | timetravel
     date: { approximate: '', season: '' },
     location: { place: '' },
     note: '',
+    timeTravelMode: '',  // 'same-universe' | 'new-universe' | '' (only for timetravel type)
     ...overrides
   };
 }

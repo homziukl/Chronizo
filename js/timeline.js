@@ -294,52 +294,195 @@ export class TimelineRenderer {
     });
   }
 
-  // ===== SUB-EVENT MARKERS =====
+  // ===== SUB-EVENT MARKERS (drawn on universe axis, not at parent Y) =====
   _drawSubEventMarkers(layout) {
     const ctx = this.ctx;
     this.eventPositions.forEach(ep => {
       const subs = ep.event.subEvents;
       if (!subs || subs.length === 0) return;
 
+      // Get the Y of the universe axis (not the event's location-offset Y)
+      const uniInfo = layout.branchInfo.get(ep.event.universe);
+      const axisY = uniInfo ? uniInfo.y : this.MAIN_Y;
+
       subs.forEach(sub => {
         if (!sub.date?.approximate) return;
-        // Find X position for sub-event date
         const subTime = this._parseSubTime(sub.date.approximate);
         if (!subTime) return;
         const subX = layout.timeToX(subTime);
 
-        // Draw small diamond marker
-        ctx.save();
-        ctx.fillStyle = ep.color;
-        ctx.globalAlpha = 0.5;
-        const s = 4;
-        ctx.beginPath();
-        ctx.moveTo(subX, ep.y - s);
-        ctx.lineTo(subX + s, ep.y);
-        ctx.lineTo(subX, ep.y + s);
-        ctx.lineTo(subX - s, ep.y);
-        ctx.closePath();
-        ctx.fill();
-
-        // Dashed line connecting sub-event to main event
-        ctx.strokeStyle = ep.color;
-        ctx.globalAlpha = 0.25;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 3]);
-        ctx.beginPath();
-        ctx.moveTo(subX, ep.y);
-        ctx.lineTo(ep.x, ep.y);
-        ctx.stroke();
-
-        // Label
-        ctx.globalAlpha = 0.6;
-        ctx.font = '8px "Share Tech Mono",monospace';
-        ctx.textAlign = 'center';
-        const typeIcons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕' };
-        ctx.fillText(`${typeIcons[sub.type] || ''} ${sub.label || sub.date.approximate}`, subX, ep.y - 8);
-        ctx.restore();
+        if (sub.type === 'timetravel') {
+          this._drawTimeTravelArc(ep, subX, axisY, sub, layout);
+        } else {
+          this._drawRegularSubMarker(ep, subX, axisY, sub);
+        }
       });
     });
+  }
+
+  // Regular sub-event: diamond on the universe axis + dashed connector to parent
+  _drawRegularSubMarker(ep, subX, axisY, sub) {
+    const ctx = this.ctx;
+    ctx.save();
+
+    // Diamond marker on the axis
+    const s = 4;
+    ctx.fillStyle = ep.color;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(subX, axisY - s);
+    ctx.lineTo(subX + s, axisY);
+    ctx.lineTo(subX, axisY + s);
+    ctx.lineTo(subX - s, axisY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Dashed line from sub-event marker to parent event
+    ctx.strokeStyle = ep.color;
+    ctx.globalAlpha = 0.2;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(subX, axisY);
+    ctx.lineTo(ep.x, ep.y);
+    ctx.stroke();
+
+    // Label on the axis
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.6;
+    ctx.font = '8px "Share Tech Mono",monospace';
+    ctx.textAlign = 'center';
+    const typeIcons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕' };
+    ctx.fillText(`${typeIcons[sub.type] || ''} ${sub.label || sub.date.approximate}`, subX, axisY - 8);
+
+    ctx.restore();
+  }
+
+  // Time Travel: special arc from parent event to destination point on axis
+  _drawTimeTravelArc(ep, subX, axisY, sub, layout) {
+    const ctx = this.ctx;
+    const isNewUniverse = sub.timeTravelMode === 'new-universe';
+
+    // Colors: cyan for same-universe, magenta/purple for new-universe
+    const ttColor = isNewUniverse ? '#e040fb' : '#00e5ff';
+    const ttGlow = isNewUniverse ? 'rgba(224,64,251,0.4)' : 'rgba(0,229,255,0.4)';
+
+    ctx.save();
+
+    // === Glowing arc from parent event to destination on axis ===
+    ctx.shadowColor = ttColor;
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = ttColor;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.7;
+
+    // Animated-looking dashed line
+    ctx.setLineDash([6, 4]);
+
+    const midX = (ep.x + subX) / 2;
+    const direction = subX > ep.x ? -1 : 1; // arc curves away from travel direction
+    const arcHeight = Math.min(80, Math.abs(subX - ep.x) * 0.3);
+    const cpY = Math.min(ep.y, axisY) - arcHeight;
+
+    ctx.beginPath();
+    ctx.moveTo(ep.x, ep.y);
+    ctx.bezierCurveTo(
+      ep.x + (subX - ep.x) * 0.3, cpY,
+      ep.x + (subX - ep.x) * 0.7, cpY,
+      subX, axisY
+    );
+    ctx.stroke();
+
+    // === Destination marker: portal circle on the axis ===
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.8;
+
+    // Outer ring (portal)
+    ctx.beginPath();
+    ctx.arc(subX, axisY, 8, 0, Math.PI * 2);
+    ctx.strokeStyle = ttColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Inner fill
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = ttColor;
+    ctx.fill();
+
+    // Center dot
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = ttColor;
+    ctx.beginPath();
+    ctx.arc(subX, axisY, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === New Universe indicator: diverging lines from portal ===
+    if (isNewUniverse) {
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = ttColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+
+      // Two diverging lines below the axis (branching effect)
+      ctx.beginPath();
+      ctx.moveTo(subX, axisY + 8);
+      ctx.lineTo(subX + 30, axisY + 35);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(subX, axisY + 8);
+      ctx.lineTo(subX - 30, axisY + 35);
+      ctx.stroke();
+
+      // Small "new universe" label
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.5;
+      ctx.font = '7px "Share Tech Mono",monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = ttColor;
+      ctx.fillText('NEW BRANCH', subX, axisY + 46);
+    }
+
+    // === Arrow on the arc (direction indicator) ===
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = ttColor;
+    // Arrow at destination
+    const angle = Math.atan2(axisY - cpY, subX - midX);
+    const arrowSize = 5;
+    ctx.beginPath();
+    ctx.moveTo(subX, axisY);
+    ctx.lineTo(subX - arrowSize * Math.cos(angle - 0.5), axisY - arrowSize * Math.sin(angle - 0.5));
+    ctx.lineTo(subX - arrowSize * Math.cos(angle + 0.5), axisY - arrowSize * Math.sin(angle + 0.5));
+    ctx.closePath();
+    ctx.fill();
+
+    // === Label ===
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.8;
+    ctx.font = '9px "Share Tech Mono",monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = ttColor;
+    const icon = isNewUniverse ? '🌀' : '⏳';
+    ctx.fillText(`${icon} ${sub.label || 'Time Travel'}`, subX, axisY - 14);
+
+    // === Source marker: small hourglass icon at parent event ===
+    ctx.globalAlpha = 0.6;
+    ctx.strokeStyle = ttColor;
+    ctx.lineWidth = 1.5;
+    const hx = ep.x, hy = ep.y;
+    // Small hourglass shape
+    ctx.beginPath();
+    ctx.moveTo(hx - 3, hy - 4);
+    ctx.lineTo(hx + 3, hy - 4);
+    ctx.lineTo(hx, hy);
+    ctx.lineTo(hx + 3, hy + 4);
+    ctx.lineTo(hx - 3, hy + 4);
+    ctx.lineTo(hx, hy);
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   _parseSubTime(str) {
@@ -378,6 +521,7 @@ export class TimelineRenderer {
   _drawEventDot(ep) {
     const ctx = this.ctx;
     const isHovered = this.hoveredEvent === ep.id;
+    const isSelected = this._selectedIds?.has(ep.id);
     const r = isHovered ? ep.radius * 1.8 : ep.radius;
     const alpha = ep.opacity || 1;
     const dash = ep.dash || [];
@@ -386,9 +530,13 @@ export class TimelineRenderer {
     ctx.shadowColor = ep.color;
     ctx.shadowBlur = isHovered ? 24 : 10;
 
-    if (this.connectMode) {
-      ctx.shadowBlur = 16;
-      ctx.shadowColor = '#a855f7';
+    if (this.connectMode) { ctx.shadowBlur = 16; ctx.shadowColor = '#a855f7'; }
+
+    // Selection ring
+    if (isSelected) {
+      ctx.shadowColor = '#fff'; ctx.shadowBlur = 16;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(ep.x, ep.y, r + 5, 0, Math.PI * 2); ctx.stroke();
     }
 
     // Glow ring
@@ -398,12 +546,9 @@ export class TimelineRenderer {
     // Main dot
     ctx.globalAlpha = alpha;
     if (dash.length > 0) {
-      ctx.setLineDash(dash);
-      ctx.strokeStyle = ep.color; ctx.lineWidth = 1.5;
+      ctx.setLineDash(dash); ctx.strokeStyle = ep.color; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(ep.x, ep.y, r, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = alpha * 0.4;
-      ctx.fillStyle = ep.color;
+      ctx.setLineDash([]); ctx.globalAlpha = alpha * 0.4; ctx.fillStyle = ep.color;
       ctx.beginPath(); ctx.arc(ep.x, ep.y, r, 0, Math.PI * 2); ctx.fill();
     } else {
       ctx.fillStyle = isHovered ? '#fff' : ep.color;
@@ -417,49 +562,72 @@ export class TimelineRenderer {
     ctx.restore();
 
     // ===== Label with collision avoidance =====
-    const label = ep.event.title.length > 24 ? ep.event.title.slice(0, 22) + '…' : ep.event.title;
+    const maxLen = this.zoom > 0.6 ? 24 : (this.zoom > 0.3 ? 14 : 8);
+    const label = ep.event.title.length > maxLen ? ep.event.title.slice(0, maxLen - 2) + '…' : ep.event.title;
     const fontSize = isHovered ? 11 : 10;
     ctx.font = `${fontSize}px "Share Tech Mono",monospace`;
     const textW = ctx.measureText(label).width;
-    const textH = fontSize + 2;
+    const textH = fontSize + 4;
+    const pad = 6; // padding around labels
 
-    // Try positions: below, above, right-below, left-below, right-above, left-above
-    const candidates = [
-      { x: ep.x - textW / 2, y: ep.y + r + 4 },                    // below center
-      { x: ep.x - textW / 2, y: ep.y - r - textH - 2 },            // above center
-      { x: ep.x + r + 4,     y: ep.y + r + 4 },                    // right-below
-      { x: ep.x - textW - r - 4, y: ep.y + r + 4 },                // left-below
-      { x: ep.x + r + 4,     y: ep.y - r - textH - 2 },            // right-above
-      { x: ep.x - textW - r - 4, y: ep.y - r - textH - 2 },        // left-above
-      { x: ep.x - textW / 2, y: ep.y + r + textH + 8 },            // far below
-      { x: ep.x - textW / 2, y: ep.y - r - textH * 2 - 4 },       // far above
+    // Generate candidate positions with increasing distance
+    const offsets = [
+      r + pad,           // close
+      r + pad + textH,   // medium
+      r + pad + textH * 2, // far
+      r + pad + textH * 3  // very far
     ];
 
-    // Default: prefer below if above main axis, above if below
+    const candidates = [];
+    for (const off of offsets) {
+      // Below center, above center
+      candidates.push({ x: ep.x - textW / 2, y: ep.y + off });
+      candidates.push({ x: ep.x - textW / 2, y: ep.y - off - textH });
+      // Right, left
+      candidates.push({ x: ep.x + r + pad, y: ep.y + off - textH });
+      candidates.push({ x: ep.x - textW - r - pad, y: ep.y + off - textH });
+      // Diagonal right-below, left-above
+      candidates.push({ x: ep.x + r + pad, y: ep.y + off });
+      candidates.push({ x: ep.x - textW - r - pad, y: ep.y - off - textH });
+    }
+
+    // Prefer: above main axis → label below, below main axis → label above
     if (ep.y >= this.MAIN_Y) {
-      // swap: try above first
+      // Swap first two so "above" is tried first
       [candidates[0], candidates[1]] = [candidates[1], candidates[0]];
     }
 
-    let bestPos = candidates[0]; // fallback
+    let placed = false;
     for (const pos of candidates) {
-      const rect = { x: pos.x - 2, y: pos.y - 1, w: textW + 4, h: textH + 2 };
+      const rect = { x: pos.x - 2, y: pos.y - 2, w: textW + 4, h: textH + 4 };
       if (!this._overlapsAny(rect)) {
-        bestPos = pos;
         this._labelRects.push(rect);
+        ctx.fillStyle = isHovered ? '#fff' : `rgba(224,221,212,${alpha})`;
+        ctx.textAlign = 'left';
+        ctx.fillText(label, pos.x, pos.y + textH - 3);
+
+        // Draw thin line from label to dot if label is far
+        const dist = Math.hypot(pos.x + textW / 2 - ep.x, pos.y + textH / 2 - ep.y);
+        if (dist > r + 20) {
+          ctx.save(); ctx.strokeStyle = ep.color; ctx.globalAlpha = 0.15; ctx.lineWidth = 0.5;
+          ctx.beginPath(); ctx.moveTo(ep.x, ep.y);
+          ctx.lineTo(pos.x + textW / 2, pos.y + textH / 2); ctx.stroke(); ctx.restore();
+        }
+        placed = true;
         break;
       }
     }
 
-    ctx.fillStyle = isHovered ? '#fff' : `rgba(224,221,212,${alpha})`;
-    ctx.textAlign = 'left';
-    ctx.fillText(label, bestPos.x, bestPos.y + textH - 2);
+    // If no position found — only show on hover
+    if (!placed && isHovered) {
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+      ctx.fillText(label, ep.x, ep.y - r - 8);
+    }
 
     // Sub-event count badge
-    if (ep.event.subEvents?.length > 0) {
+    if (ep.event.subEvents?.length > 0 && placed) {
       ctx.fillStyle = ep.color; ctx.globalAlpha = 0.7;
-      ctx.font = '8px "Share Tech Mono",monospace';
-      ctx.textAlign = 'center';
+      ctx.font = '8px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
       ctx.fillText(`+${ep.event.subEvents.length}`, ep.x + r + 8, ep.y + 3);
     }
   }
@@ -467,9 +635,7 @@ export class TimelineRenderer {
   _overlapsAny(rect) {
     for (const r of this._labelRects) {
       if (rect.x < r.x + r.w && rect.x + rect.w > r.x &&
-          rect.y < r.y + r.h && rect.y + rect.h > r.y) {
-        return true;
-      }
+          rect.y < r.y + r.h && rect.y + rect.h > r.y) return true;
     }
     return false;
   }
@@ -608,6 +774,7 @@ export class TimelineRenderer {
   // ===== INTERACTION =====
   _setupInteraction() {
     let isDragging = false, lastX = 0, lastY = 0;
+    this._selectedIds = new Set();
 
     this.canvas.addEventListener('mousedown', (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
     window.addEventListener('mousemove', (e) => {
@@ -631,9 +798,42 @@ export class TimelineRenderer {
 
     this.canvas.addEventListener('click', (e) => {
       const hit = this._hitTest(e);
-      if (hit) this.onEventClick?.(hit.event);
+      if (e.ctrlKey || e.metaKey) {
+        // Multi-select with Ctrl+click
+        if (hit) {
+          if (this._selectedIds.has(hit.id)) this._selectedIds.delete(hit.id);
+          else this._selectedIds.add(hit.id);
+          this.render();
+          this.onSelectionChange?.(this.getSelectedIds());
+        }
+      } else if (e.shiftKey && hit && this._selectedIds.size > 0) {
+        // Shift+click: select range (all events between last selected and this one)
+        this._selectedIds.add(hit.id);
+        this.render();
+        this.onSelectionChange?.(this.getSelectedIds());
+      } else {
+        // Normal click
+        if (hit) {
+          if (this._selectedIds.size > 0) {
+            this._selectedIds.clear();
+            this.render();
+            this.onSelectionChange?.(this.getSelectedIds());
+          }
+          this.onEventClick?.(hit.event);
+        } else {
+          // Click on empty space — clear selection
+          if (this._selectedIds.size > 0) {
+            this._selectedIds.clear();
+            this.render();
+            this.onSelectionChange?.(this.getSelectedIds());
+          }
+        }
+      }
     });
   }
+
+  getSelectedIds() { return [...this._selectedIds]; }
+  clearSelection() { this._selectedIds.clear(); this.render(); }
 
   _handleHover(e) {
     const hit = this._hitTest(e);
@@ -679,9 +879,13 @@ export class TimelineRenderer {
 
     // Sub-events
     if (ev.subEvents?.length > 0) {
-      const icons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕' };
+      const icons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕', timetravel: '⏳' };
       ev.subEvents.forEach(s => {
-        h += `<div class="tt-sub">${icons[s.type] || '•'} ${s.label || s.type} ${s.date?.approximate ? '(' + s.date.approximate + ')' : ''}</div>`;
+        let extra = '';
+        if (s.type === 'timetravel') {
+          extra = s.timeTravelMode === 'new-universe' ? ' 🌀 New Universe' : ' 🔄 Same Universe';
+        }
+        h += `<div class="tt-sub">${icons[s.type] || '•'} ${s.label || s.type} ${s.date?.approximate ? '(' + s.date.approximate + ')' : ''}${extra}</div>`;
       });
     }
 

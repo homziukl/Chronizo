@@ -432,7 +432,7 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
 /* ===== Sub-events ===== */
 .sub-event-row {
   display: grid;
-  grid-template-columns: 80px 1fr 80px 30px;
+  grid-template-columns: 80px 1fr 80px auto 30px;
   gap: 6px;
   margin-bottom: 6px;
   align-items: center;
@@ -447,6 +447,11 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
   padding: 2px 6px;
   color: var(--accent-red);
   border-color: var(--accent-red);
+}
+.sub-event-row .sub-tt-mode {
+  font-size: 10px;
+  padding: 3px 4px;
+  min-width: 0;
 }
 .small-btn {
   font-size: 11px;
@@ -470,3 +475,62 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
 
 /* ===== Sub-events in tooltip ===== */
 .tt-sub { color: var(--text-dim); font-size: 11px; padding-left: 8px; border-left: 2px solid var(--border); margin: 4px 0; }
+
+/* ===== Bulk edit dialog ===== */
+#bulk-edit-dialog {
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-gold);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 24px;
+  min-width: 400px;
+  box-shadow: 0 0 40px rgba(0,0,0,0.8);
+}
+#bulk-edit-dialog::backdrop { background: rgba(0,0,0,0.7); }
+#bulk-edit-dialog h2 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--accent-gold);
+  margin-bottom: 8px;
+}
+#bulk-edit-dialog label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+#bulk-edit-dialog input,
+#bulk-edit-dialog select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* Selection banner */
+#selection-banner {
+  position: absolute;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(212,168,67,0.15);
+  border: 1px solid var(--accent-gold);
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 12px;
+  color: var(--text);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  backdrop-filter: blur(4px);
+}
+#selection-banner button { font-size: 11px; padding: 3px 10px; }

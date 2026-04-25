@@ -290,6 +290,7 @@ function renderSubEvents(subs) {
   (subs || []).forEach((sub, i) => {
     const row = document.createElement('div');
     row.className = 'sub-event-row';
+    const isTT = sub.type === 'timetravel';
     row.innerHTML = `
       <select data-idx="${i}" class="sub-type">
         <option value="flashback" ${sub.type === 'flashback' ? 'selected' : ''}>⏪ Flashback</option>
@@ -297,12 +298,22 @@ function renderSubEvents(subs) {
         <option value="postcredits" ${sub.type === 'postcredits' ? 'selected' : ''}>🎬 Post-credits</option>
         <option value="prologue" ${sub.type === 'prologue' ? 'selected' : ''}>📖 Prologue</option>
         <option value="epilogue" ${sub.type === 'epilogue' ? 'selected' : ''}>📕 Epilogue</option>
+        <option value="timetravel" ${sub.type === 'timetravel' ? 'selected' : ''}>⏳ Time Travel</option>
       </select>
       <input type="text" class="sub-label" value="${sub.label || ''}" placeholder="Description...">
       <input type="text" class="sub-date" value="${sub.date?.approximate || ''}" placeholder="Date/year">
+      <select class="sub-tt-mode" ${isTT ? '' : 'style="display:none"'}>
+        <option value="same-universe" ${sub.timeTravelMode === 'same-universe' ? 'selected' : ''}>🔄 Same Universe</option>
+        <option value="new-universe" ${sub.timeTravelMode === 'new-universe' ? 'selected' : ''}>🌀 New Universe</option>
+      </select>
       <button type="button" class="sub-del" data-idx="${i}">✕</button>
     `;
     list.appendChild(row);
+
+    // Show/hide time travel mode when type changes
+    row.querySelector('.sub-type').addEventListener('change', (e) => {
+      row.querySelector('.sub-tt-mode').style.display = e.target.value === 'timetravel' ? '' : 'none';
+    });
   });
 
   list.querySelectorAll('.sub-del').forEach(btn => {
@@ -325,12 +336,20 @@ document.getElementById('btn-add-sub-event').addEventListener('click', () => {
       <option value="postcredits">🎬 Post-credits</option>
       <option value="prologue">📖 Prologue</option>
       <option value="epilogue">📕 Epilogue</option>
+      <option value="timetravel">⏳ Time Travel</option>
     </select>
     <input type="text" class="sub-label" placeholder="Description...">
     <input type="text" class="sub-date" placeholder="Date/year">
+    <select class="sub-tt-mode" style="display:none">
+      <option value="same-universe">🔄 Same Universe</option>
+      <option value="new-universe">🌀 New Universe</option>
+    </select>
     <button type="button" class="sub-del">✕</button>
   `;
   list.appendChild(row);
+  row.querySelector('.sub-type').addEventListener('change', (e) => {
+    row.querySelector('.sub-tt-mode').style.display = e.target.value === 'timetravel' ? '' : 'none';
+  });
   row.querySelector('.sub-del').addEventListener('click', () => row.remove());
 });
 
@@ -342,7 +361,8 @@ function collectSubEvents() {
     label: row.querySelector('.sub-label').value,
     date: { approximate: row.querySelector('.sub-date').value, season: '' },
     location: { place: '' },
-    note: ''
+    note: '',
+    timeTravelMode: row.querySelector('.sub-tt-mode')?.value || ''
   })).filter(s => s.label || s.date.approximate);
 }
 
@@ -451,6 +471,85 @@ function renderUniverseList() {
     });
   });
 }
+
+// ===== Multi-select + Bulk Edit =====
+renderer.onSelectionChange = (ids) => {
+  const banner = document.getElementById('selection-banner');
+  if (ids.length > 0) {
+    banner.classList.remove('hidden');
+    document.getElementById('sel-count').textContent = ids.length;
+  } else {
+    banner.classList.add('hidden');
+  }
+};
+
+document.getElementById('btn-clear-selection').addEventListener('click', () => {
+  renderer.clearSelection();
+});
+
+document.getElementById('btn-bulk-edit').addEventListener('click', () => {
+  const ids = renderer.getSelectedIds();
+  if (ids.length === 0) return;
+  const bulkDialog = document.getElementById('bulk-edit-dialog');
+  document.getElementById('bulk-count').textContent = ids.length;
+
+  // Populate universe select
+  const sel = document.getElementById('bulk-universe');
+  sel.innerHTML = '<option value="">— don\'t change —</option>';
+  project.universes.forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u.id; opt.textContent = u.name;
+    sel.appendChild(opt);
+  });
+
+  document.getElementById('bulk-evidence').value = '';
+  document.getElementById('bulk-tags').value = '';
+  document.getElementById('bulk-planet').value = '';
+  document.getElementById('bulk-region').value = '';
+  bulkDialog.showModal();
+});
+
+document.getElementById('btn-bulk-apply').addEventListener('click', () => {
+  const ids = renderer.getSelectedIds();
+  const uni = document.getElementById('bulk-universe').value;
+  const evi = document.getElementById('bulk-evidence').value;
+  const tags = document.getElementById('bulk-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+  const planet = document.getElementById('bulk-planet').value.trim();
+  const region = document.getElementById('bulk-region').value.trim();
+
+  ids.forEach(id => {
+    const ev = project.events.find(e => e.id === id);
+    if (!ev) return;
+    if (uni) ev.universe = uni;
+    if (evi) ev.evidence = evi;
+    if (tags.length > 0) ev.tags = [...new Set([...(ev.tags || []), ...tags])];
+    if (planet) {
+      if (typeof ev.location === 'string') ev.location = { realm: '', planet, region: '', place: ev.location };
+      else ev.location.planet = planet;
+    }
+    if (region) {
+      if (typeof ev.location === 'string') ev.location = { realm: '', planet: '', region, place: ev.location };
+      else ev.location.region = region;
+    }
+  });
+
+  document.getElementById('bulk-edit-dialog').close();
+  renderer.clearSelection();
+  refreshAll();
+});
+
+document.getElementById('btn-bulk-delete').addEventListener('click', () => {
+  const ids = renderer.getSelectedIds();
+  if (!confirm(`Delete ${ids.length} events? This cannot be undone.`)) return;
+  ids.forEach(id => deleteEvent(project, id));
+  document.getElementById('bulk-edit-dialog').close();
+  renderer.clearSelection();
+  refreshAll();
+});
+
+document.getElementById('btn-bulk-cancel').addEventListener('click', () => {
+  document.getElementById('bulk-edit-dialog').close();
+});
 
 // ===== Init =====
 updateProjectLabel();

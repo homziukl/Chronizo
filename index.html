@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chronizo — Timeline Builder</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -59,6 +60,12 @@
       </div>
       <!-- Minimap -->
       <canvas id="minimap"></canvas>
+      <!-- Selection banner -->
+      <div id="selection-banner" class="hidden">
+        <span id="sel-count">0</span> events selected (Ctrl+click to add)
+        <button id="btn-bulk-edit">✏ Bulk Edit</button>
+        <button id="btn-clear-selection">Clear</button>
+      </div>
     </div>
 
     <!-- Side panel for event editing -->
@@ -198,6 +205,41 @@
         </div>
       </form>
     </aside>
+
+    <!-- Bulk edit panel (multi-select) -->
+    <dialog id="bulk-edit-dialog">
+      <h2>Bulk Edit — <span id="bulk-count">0</span> events selected</h2>
+      <p style="color:#8a8778;font-size:11px;margin-bottom:12px">Only filled fields will be applied. Leave blank to keep current values.</p>
+      <label>Move to Universe
+        <select id="bulk-universe">
+          <option value="">— don't change —</option>
+        </select>
+      </label>
+      <label>Set Evidence
+        <select id="bulk-evidence">
+          <option value="">— don't change —</option>
+          <option value="shown">👁 Shown</option>
+          <option value="described">📝 Described</option>
+          <option value="mentioned">💬 Mentioned</option>
+          <option value="implied">🔮 Implied</option>
+          <option value="speculated">❓ Speculated</option>
+        </select>
+      </label>
+      <label>Add Tags (comma separated)
+        <input type="text" id="bulk-tags" placeholder="Leave blank to skip">
+      </label>
+      <label>Set Planet
+        <input type="text" id="bulk-planet" placeholder="Leave blank to skip">
+      </label>
+      <label>Set Region
+        <input type="text" id="bulk-region" placeholder="Leave blank to skip">
+      </label>
+      <div class="form-actions">
+        <button id="btn-bulk-apply">Apply to All Selected</button>
+        <button id="btn-bulk-delete" class="danger">Delete All Selected</button>
+        <button id="btn-bulk-cancel">Cancel</button>
+      </div>
+    </dialog>
 
     <!-- Universe manager modal -->
     <dialog id="universe-dialog">
