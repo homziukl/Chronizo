@@ -4,7 +4,7 @@
 
 import { sortEvents } from './sorting.js';
 import { getTimeValue, getTimeEndValue, hasDateRange, getLocationKey,
-         getLocationString, EVIDENCE_LEVELS } from './events.js';
+         getLocationString, EVIDENCE_LEVELS, isPositionedByRelease, isUntimed } from './events.js';
 
 export class TimelineRenderer {
   constructor(canvas) {
@@ -14,6 +14,10 @@ export class TimelineRenderer {
     this.filteredEvents = null; // null = show all
     this.sortMode = 'in-universe';
     this.connectMode = false;
+    // Label glow (Req 7.5, optional feature). Default OFF so existing rendering
+    // is unchanged; toggled on via setLabelGlow(true). When on, event labels get
+    // a soft glow behind them in their universe color.
+    this.labelGlow = false;
 
     this.offsetX = 100;
     this.offsetY = 0;
@@ -29,6 +33,12 @@ export class TimelineRenderer {
     this.MAX_GAP = 400;
     this.WIRE_SPREAD = 16;
     this.BRANCH_CURVE = 60;
+    // "Bez źródła czasu" (no time source) zone — untimed events (Req 5.3) are
+    // laid out here, after the last real time slot, instead of colliding with
+    // dated events at the axis start. Spacing is fixed so positions are a
+    // deterministic function of the event data (Property 10).
+    this.UNTIMED_ZONE_GAP = 160; // gap from the last time slot to the zone
+    this.UNTIMED_SLOT_GAP = 120; // gap between consecutive untimed events
 
     this._setupInteraction();
   }
@@ -37,6 +47,9 @@ export class TimelineRenderer {
   setSortMode(m) { this.sortMode = m; this.render(); }
   setFilteredEvents(evts) { this.filteredEvents = evts; this.render(); }
   setConnectMode(on) { this.connectMode = on; this.render(); }
+  // Optional label glow toggle (Req 7.5). Mirrors the other setters: updates the
+  // flag and re-renders. Default state is OFF (set in the constructor).
+  setLabelGlow(on) { this.labelGlow = on; this.render(); }
 
   resize() {
     const r = this.canvas.parentElement.getBoundingClientRect();
@@ -70,6 +83,7 @@ export class TimelineRenderer {
     this._drawUniverseBands(layout);
     this._drawMainAxis(layout);
     this._drawTimeMarkers(layout);
+    this._drawUntimedZone(layout);
     this._drawBranches(layout);
     this._drawDateRanges(layout);
     this._drawConnections();
@@ -89,9 +103,17 @@ export class TimelineRenderer {
     const universes = this.project.universes;
     const mainUni = universes.find(u => u.isMain) || universes[0];
 
-    // Time slots
+    // Separate events that have no time source at all (Req 5.3). They must NOT
+    // fall into the t=0 slot (which lands at the axis start and collides with
+    // dated events) and must NOT distort the time-axis scaling. They are placed
+    // in a dedicated "Bez źródła czasu" zone after the last real time slot.
+    const timedEvents = [];
+    const untimedEvents = [];
+    sorted.forEach(ev => (isUntimed(ev) ? untimedEvents : timedEvents).push(ev));
+
+    // Time slots — built only from events that actually have a time source.
     const slotMap = new Map();
-    sorted.forEach(ev => {
+    timedEvents.forEach(ev => {
       const t = getTimeValue(ev);
       if (!slotMap.has(t)) slotMap.set(t, { time: t, label: this._formatDate(ev), events: [] });
       slotMap.get(t).events.push(ev);
@@ -109,6 +131,24 @@ export class TimelineRenderer {
       currentX += gap;
       slot.x = currentX;
     });
+
+    // "Bez źródła czasu" zone — deterministic placement after the last time
+    // slot (Req 5.3 / Property 10). Untimed events are ordered by
+    // sortOrder.custom then title so the position is a pure function of the
+    // event data: re-rendering the same state yields identical positions.
+    const untimedSorted = [...untimedEvents].sort((a, b) =>
+      ((a.sortOrder?.custom || 0) - (b.sortOrder?.custom || 0)) ||
+      String(a.title || '').localeCompare(String(b.title || '')));
+    const untimedPositions = new Map(); // event id -> x
+    const untimedStartX = currentX + this.UNTIMED_ZONE_GAP;
+    untimedSorted.forEach((ev, i) => {
+      untimedPositions.set(ev.id, untimedStartX + i * this.UNTIMED_SLOT_GAP);
+    });
+    const untimedZone = untimedSorted.length > 0
+      ? { startX: untimedStartX,
+          endX: untimedStartX + (untimedSorted.length - 1) * this.UNTIMED_SLOT_GAP,
+          events: untimedSorted }
+      : null;
 
     // Branch tree
     const branchInfo = new Map();
@@ -158,27 +198,59 @@ export class TimelineRenderer {
       return slots[slots.length - 1].x;
     };
 
-    return { slots, branchInfo, universes, mainUni, locationWires, totalWidth: currentX + 200, sorted, timeToX };
+    return { slots, branchInfo, universes, mainUni, locationWires, totalWidth: (untimedZone ? untimedZone.endX : currentX) + 200, sorted, timeToX, untimedZone, untimedPositions };
   }
 
   // ===== UNIVERSE BANDS =====
   _drawUniverseBands(layout) {
     const ctx = this.ctx;
     layout.universes.forEach(uni => {
-      if (uni.isMain) return;
       const info = layout.branchInfo.get(uni.id);
       if (!info) return;
+
+      // Horizontal extent occupied by this universe's events (Req 7.4 — also
+      // covers the main universe; Req 7.1 — band spans all of its events).
+      const uniSlots = layout.slots.filter(s => s.events.some(e => e.universe === uni.id));
+      let bandStartX, bandEndX;
+      if (uniSlots.length > 0) {
+        const xs = uniSlots.map(s => s.x);
+        bandStartX = Math.min(...xs) - 30;
+        bandEndX = Math.max(...xs) + 60;
+      } else if (info.isMain) {
+        // Main universe without its own events still gets a band along the axis.
+        bandStartX = info.startX;
+        bandEndX = layout.totalWidth;
+      } else {
+        return; // non-main universe with no events — nothing to draw
+      }
+      // Start no later than the branch origin so the band covers the branch curve.
+      bandStartX = Math.min(bandStartX, info.startX);
+      const bandW = bandEndX - bandStartX;
+
       const lw = layout.locationWires.get(uni.id);
       const bandH = Math.max(50, (lw ? lw.size : 0) * this.WIRE_SPREAD + 20);
+      const bandTop = info.y - bandH / 2;
+
       ctx.save();
+      // Fill — alpha in the 0.08–0.10 readable range (Req 7.2).
       ctx.fillStyle = uni.color;
-      ctx.globalAlpha = 0.04;
-      ctx.fillRect(info.startX, info.y - bandH / 2, layout.totalWidth - info.startX, bandH);
+      ctx.globalAlpha = 0.09;
+      ctx.fillRect(bandStartX, bandTop, bandW, bandH);
+      // Dashed border.
       ctx.globalAlpha = 0.1;
       ctx.strokeStyle = uni.color;
       ctx.lineWidth = 0.5;
       ctx.setLineDash([4, 8]);
-      ctx.strokeRect(info.startX, info.y - bandH / 2, layout.totalWidth - info.startX, bandH);
+      ctx.strokeRect(bandStartX, bandTop, bandW, bandH);
+      // Universe name at the band's left edge, in the universe color (Req 7.3).
+      // Placed at the top edge so it does not obscure events/labels on the wire.
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = uni.color;
+      ctx.font = '11px "Share Tech Mono",monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(uni.name, bandStartX + 6, bandTop + 10);
       ctx.restore();
     });
   }
@@ -218,6 +290,38 @@ export class TimelineRenderer {
     }
   }
 
+  // ===== UNTIMED ZONE ("Bez źródła czasu") =====
+  // Visual separator + label for the dedicated region where events with no
+  // time source (Req 5.3) are placed, so users see they are intentionally
+  // grouped at the end of the axis rather than at the start.
+  _drawUntimedZone(layout) {
+    const zone = layout.untimedZone;
+    if (!zone) return;
+    const ctx = this.ctx;
+    const y = this.MAIN_Y;
+    const dividerX = zone.startX - this.UNTIMED_ZONE_GAP / 2;
+
+    ctx.save();
+    // Dashed vertical divider between the time axis and the untimed zone.
+    ctx.strokeStyle = '#6a6a78';
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(dividerX, y - 120);
+    ctx.lineTo(dividerX, y + 120);
+    ctx.stroke();
+    // Zone label, greyed-out to match the "no time source" marker styling.
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#8a8a98';
+    ctx.font = '10px "Share Tech Mono",monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⌀ Bez źródła czasu', zone.startX - 16, y - 130);
+    ctx.restore();
+  }
+
   // ===== BRANCHES =====
   _drawBranches(layout) {
     const { slots, branchInfo, universes, locationWires } = layout;
@@ -235,6 +339,16 @@ export class TimelineRenderer {
           uniEvents.push({ ev, x: slot.x, y: info.y + locOffset });
         });
       });
+
+      // Untimed events for this universe — placed in the dedicated
+      // "Bez źródła czasu" zone (Req 5.3) at their deterministic X instead of
+      // the t=0 slot. Appended after timed events so they sit at the far right.
+      if (layout.untimedZone) {
+        layout.untimedZone.events.filter(e => e.universe === uni.id).forEach(ev => {
+          const locOffset = locWires.get(getLocationKey(ev)) || 0;
+          uniEvents.push({ ev, x: layout.untimedPositions.get(ev.id), y: info.y + locOffset });
+        });
+      }
 
       if (uniEvents.length === 0 && !info.isMain) return;
 
@@ -561,6 +675,49 @@ export class TimelineRenderer {
     ctx.fillStyle = '#0a0a0f'; ctx.fill();
     ctx.restore();
 
+    // ===== Release-positioning marker (Req 5.2) =====
+    // An event with no in-universe date is placed at its releaseDate. Mark it
+    // with a distinguishing dashed ring + "≈" glyph so it reads as uncertain
+    // and is clearly different from events positioned by an in-universe date.
+    if (isPositionedByRelease(ep.event)) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = ep.color;
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.arc(ep.x, ep.y, r + 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      // "≈" glyph (approximate position) above-right of the dot.
+      ctx.globalAlpha = Math.min(1, alpha + 0.2);
+      ctx.fillStyle = ep.color;
+      ctx.font = `${Math.max(9, Math.round(r * 1.4))}px "Share Tech Mono",monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('≈', ep.x + r + 6, ep.y - r - 4);
+      ctx.restore();
+    }
+
+    // ===== No-time-source marker (Req 5.3) =====
+    // An event with neither an in-universe date nor a release date lives in the
+    // dedicated "Bez źródła czasu" zone. Mark it greyed-out with a dashed
+    // outline + "⌀" glyph so it is clearly distinct from time-positioned events.
+    if (isUntimed(ep.event)) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (alpha || 1));
+      ctx.strokeStyle = '#8a8a98';
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.arc(ep.x, ep.y, r + 4, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      // "⌀" glyph (no time source) above-right of the dot.
+      ctx.fillStyle = '#a0a0ae';
+      ctx.font = `${Math.max(9, Math.round(r * 1.4))}px "Share Tech Mono",monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⌀', ep.x + r + 6, ep.y - r - 4);
+      ctx.restore();
+    }
+
     // ===== Label with collision avoidance =====
     const maxLen = this.zoom > 0.6 ? 24 : (this.zoom > 0.3 ? 14 : 8);
     const label = ep.event.title.length > maxLen ? ep.event.title.slice(0, maxLen - 2) + '…' : ep.event.title;
@@ -604,7 +761,20 @@ export class TimelineRenderer {
         this._labelRects.push(rect);
         ctx.fillStyle = isHovered ? '#fff' : `rgba(224,221,212,${alpha})`;
         ctx.textAlign = 'left';
-        ctx.fillText(label, pos.x, pos.y + textH - 3);
+        // Label glow (Req 7.5, optional): when enabled, draw a soft glow behind
+        // the label text in the event's universe color. Wrapped in save/restore
+        // so the shadow is reset afterward and other drawing (connector line,
+        // sub-event badge) is unaffected. When the flag is off, behavior is
+        // identical to before (plain fillText, no shadow).
+        if (this.labelGlow) {
+          ctx.save();
+          ctx.shadowColor = ep.color;
+          ctx.shadowBlur = isHovered ? 8 : 6;
+          ctx.fillText(label, pos.x, pos.y + textH - 3);
+          ctx.restore();
+        } else {
+          ctx.fillText(label, pos.x, pos.y + textH - 3);
+        }
 
         // Draw thin line from label to dot if label is far
         const dist = Math.hypot(pos.x + textW / 2 - ep.x, pos.y + textH / 2 - ep.y);
@@ -621,7 +791,15 @@ export class TimelineRenderer {
     // If no position found — only show on hover
     if (!placed && isHovered) {
       ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-      ctx.fillText(label, ep.x, ep.y - r - 8);
+      if (this.labelGlow) {
+        ctx.save();
+        ctx.shadowColor = ep.color;
+        ctx.shadowBlur = 8;
+        ctx.fillText(label, ep.x, ep.y - r - 8);
+        ctx.restore();
+      } else {
+        ctx.fillText(label, ep.x, ep.y - r - 8);
+      }
     }
 
     // Sub-event count badge
@@ -871,10 +1049,21 @@ export class TimelineRenderer {
     }
     const d = this._formatDate(ev);
     if (d) h += `<div class="tt-meta">📅 ${d}</div>`;
+    // Release-positioning uncertainty note (Req 5.4): an event with no
+    // in-universe date is placed at its releaseDate — communicate that the
+    // position is approximate and derived from the release date.
+    if (isPositionedByRelease(ev)) {
+      h += `<div class="tt-meta">≈ Pozycja przybliżona — wg daty wydania (${ev.releaseDate})</div>`;
+    }
     const loc = getLocationString(ev);
     if (loc) h += `<div class="tt-meta">📍 ${loc}</div>`;
     if (ev.media?.title) h += `<div class="tt-meta">🎬 ${ev.media.title} ${ev.media.episode || ''}</div>`;
     if (ev.source) h += `<div class="tt-meta">📖 ${ev.source}</div>`;
+    if (ev.characters?.length) h += `<div class="tt-meta">👤 ${ev.characters.join(', ')}</div>`;
+    if (ev.attributes?.length) {
+      const clues = ev.attributes.map(a => a.value ? `${a.key}: ${a.value}` : a.key).join(' · ');
+      h += `<div class="tt-meta">🧩 ${clues}</div>`;
+    }
     if (ev.reasoning) h += `<div class="tt-reasoning">"${ev.reasoning}"</div>`;
 
     // Sub-events

@@ -9,7 +9,7 @@ const DEFAULT_PROJECT = {
     version: '1.0.0'
   },
   universes: [
-    { id: 'main', name: 'Sacred Timeline', color: '#ff6b00', isMain: true }
+    { id: 'main', name: 'Main Timeline', color: '#ff6b00', isMain: true }
   ],
   events: [],
   // Cross-universe connections (character jumps, branch points)
@@ -76,7 +76,9 @@ export function loadFromFile() {
           }
           // Ensure connections array exists (backward compat)
           if (!data.connections) data.connections = [];
-          resolve(data);
+          // Normalize missing event list fields (attributes/characters/subEvents)
+          // to empty arrays; universes (incl. main universe name) are untouched.
+          resolve(normalizeLoadedProject(data));
         } catch (err) {
           reject(err);
         }
@@ -98,10 +100,26 @@ export function loadFromLocalStorage() {
   try {
     const data = JSON.parse(raw);
     if (!data.connections) data.connections = [];
-    return data;
+    return normalizeLoadedProject(data);
   } catch {
     return null;
   }
+}
+
+// Backward compatibility for loaded projects (file or localStorage).
+// Guarantees each event has the list fields attributes/characters/subEvents
+// as arrays (older files may omit them). It MUST NOT touch universes — the
+// main universe name stored in the file is preserved exactly (Req 11.3).
+function normalizeLoadedProject(project) {
+  if (Array.isArray(project?.events)) {
+    project.events.forEach(ev => {
+      if (!ev) return;
+      if (!Array.isArray(ev.attributes)) ev.attributes = [];
+      if (!Array.isArray(ev.characters)) ev.characters = [];
+      if (!Array.isArray(ev.subEvents)) ev.subEvents = [];
+    });
+  }
+  return project;
 }
 
 // Merge another project INTO the current one
@@ -187,7 +205,7 @@ export function exportToCSV(project) {
     'media_type', 'media_title', 'media_episode',
     'evidence', 'source', 'reasoning',
     'location_realm', 'location_planet', 'location_region', 'location_place',
-    'tags', 'custom_sort_order'
+    'tags', 'characters', 'attributes', 'sub_events', 'custom_sort_order'
   ];
 
   const rows = project.events.map(ev => {
@@ -218,6 +236,9 @@ export function exportToCSV(project) {
       loc.region || '',
       loc.place || '',
       (ev.tags || []).join('; '),
+      (ev.characters || []).join('; '),
+      serializeAttributes(ev.attributes),
+      (ev.subEvents && ev.subEvents.length) ? JSON.stringify(ev.subEvents) : '',
       ev.sortOrder?.custom || 0
     ].map(v => `"${String(v).replace(/"/g, '""')}"`);
   });
@@ -319,8 +340,10 @@ function parseCSV(text) {
         place: get('location_place')
       },
       tags: (get('tags') || '').split(';').map(t => t.trim()).filter(Boolean),
-      sortOrder: { custom: parseInt(get('custom_sort_order')) || 0 },
-      subEvents: []
+      characters: (get('characters') || '').split(';').map(c => c.trim()).filter(Boolean),
+      attributes: parseAttributes(get('attributes')),
+      subEvents: parseSubEventsCell(get('sub_events')),
+      sortOrder: { custom: parseInt(get('custom_sort_order')) || 0 }
     });
   }
 
@@ -350,4 +373,37 @@ function parseCSVLine(line) {
 function randomColor() {
   const hue = Math.floor(Math.random() * 360);
   return `hsl(${hue}, 70%, 55%)`;
+}
+
+// ===== Attribute serialization (free-form clue list) =====
+// In CSV a cell stores attributes as "key=value; key=value".
+export function serializeAttributes(attrs) {
+  if (!Array.isArray(attrs) || attrs.length === 0) return '';
+  return attrs
+    .filter(a => a && a.key)
+    .map(a => `${String(a.key).replace(/[;=]/g, ' ')}=${String(a.value ?? '').replace(/;/g, ',')}`)
+    .join('; ');
+}
+
+export function parseAttributes(cell) {
+  if (!cell) return [];
+  return cell.split(';').map(pair => {
+    const idx = pair.indexOf('=');
+    if (idx === -1) {
+      const k = pair.trim();
+      return k ? { key: k, value: '' } : null;
+    }
+    return { key: pair.slice(0, idx).trim(), value: pair.slice(idx + 1).trim() };
+  }).filter(a => a && a.key);
+}
+
+// Sub-events are stored in a CSV cell as a JSON array string.
+function parseSubEventsCell(cell) {
+  if (!cell || !cell.trim()) return [];
+  try {
+    const parsed = JSON.parse(cell);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

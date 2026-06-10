@@ -4,6 +4,8 @@ import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLo
 import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createSubEvent } from './events.js';
 import { createConnection } from './storage.js';
 import { TimelineRenderer } from './timeline.js';
+import { parseFormula, universeNameFromMedia } from './formula.js';
+import { EXAMPLE_FORMULA, AI_PROMPT } from './template.js';
 
 // ===== State =====
 let project = loadFromLocalStorage() || createProject('My Timeline');
@@ -111,6 +113,76 @@ document.getElementById('btn-csv-import').addEventListener('click', async () => 
   }
 });
 
+// ===== Quick Add (text formula) =====
+const quickaddDialog = document.getElementById('quickadd-dialog');
+
+// Resolve a universe name to an id, creating the universe if it doesn't exist.
+function resolveUniverseByName(name) {
+  if (!name) return 'main';
+  const found = project.universes.find(u => u.name.toLowerCase() === name.toLowerCase());
+  if (found) return found.id;
+  const hue = Math.floor(Math.random() * 360);
+  const uni = addUniverse(project, name, `hsl(${hue}, 70%, 55%)`, null);
+  return uni.id;
+}
+
+function addEventsFromFormula(text) {
+  const { events, errors } = parseFormula(text);
+  events.forEach(data => {
+    data.universe = resolveUniverseByName(data._universeName);
+    data.speculativeUniverse = data.speculativeUniverseName
+      ? resolveUniverseByName(data.speculativeUniverseName) : '';
+    delete data._universeName;
+    delete data.speculativeUniverseName;
+    addEvent(project, data);
+  });
+  return { added: events.length, errors };
+}
+
+document.getElementById('btn-quick-add').addEventListener('click', () => {
+  document.getElementById('quickadd-feedback').textContent = '';
+  quickaddDialog.showModal();
+});
+
+document.getElementById('btn-quickadd-cancel').addEventListener('click', () => quickaddDialog.close());
+
+document.getElementById('btn-quickadd-spec').addEventListener('click', () => {
+  document.getElementById('quickadd-text').value = EXAMPLE_FORMULA;
+});
+
+document.getElementById('btn-quickadd-prompt').addEventListener('click', async () => {
+  const feedback = document.getElementById('quickadd-feedback');
+  try {
+    await navigator.clipboard.writeText(AI_PROMPT);
+    feedback.style.color = '#27ae60';
+    feedback.textContent = '📋 AI prompt copied — paste it into any AI, then paste the result back here.';
+  } catch {
+    // Clipboard API unavailable (e.g. file:// without permission) — fall back to
+    // showing the prompt in the textarea so the user can copy it manually.
+    document.getElementById('quickadd-text').value = AI_PROMPT;
+    feedback.style.color = '#f39c12';
+    feedback.textContent = 'Clipboard blocked — prompt placed in the box above; copy it manually (Ctrl+A, Ctrl+C).';
+  }
+});
+
+document.getElementById('btn-quickadd-parse').addEventListener('click', () => {
+  const text = document.getElementById('quickadd-text').value;
+  const feedback = document.getElementById('quickadd-feedback');
+  const { added, errors } = addEventsFromFormula(text);
+  if (added === 0 && errors.length) {
+    feedback.style.color = '#e74c3c';
+    feedback.textContent = '⚠ ' + errors.join(' | ');
+    return;
+  }
+  refreshAll();
+  if (errors.length) {
+    feedback.style.color = '#f39c12';
+    feedback.textContent = `Added ${added} event(s). Warnings: ${errors.join(' | ')}`;
+  } else {
+    quickaddDialog.close();
+  }
+});
+
 document.getElementById('btn-load').addEventListener('click', async () => {
   try {
     project = await loadFromFile();
@@ -212,6 +284,7 @@ function openEventPanel(event) {
   document.getElementById('ev-source').value = event?.source || '';
   document.getElementById('ev-reasoning').value = event?.reasoning || '';
   document.getElementById('ev-tags').value = (event?.tags || []).join(', ');
+  document.getElementById('ev-characters').value = (event?.characters || []).join(', ');
   document.getElementById('ev-loc-realm').value = getLocField(event, 'realm');
   document.getElementById('ev-loc-planet').value = getLocField(event, 'planet');
   document.getElementById('ev-loc-region').value = getLocField(event, 'region');
@@ -220,6 +293,9 @@ function openEventPanel(event) {
 
   // Sub-events
   renderSubEvents(event?.subEvents || []);
+
+  // Clues / attributes
+  renderAttributes(event?.attributes || []);
 
   requestAnimationFrame(() => {
     document.getElementById('ev-universe').value = event?.universe || 'main';
@@ -262,8 +338,10 @@ form.addEventListener('submit', (e) => {
       place: document.getElementById('ev-loc-place').value.trim()
     },
     tags: document.getElementById('ev-tags').value.split(',').map(t => t.trim()).filter(Boolean),
+    characters: document.getElementById('ev-characters').value.split(',').map(s => s.trim()).filter(Boolean),
     sortOrder: { custom: parseInt(document.getElementById('ev-sort-order').value) || 0 },
-    subEvents: collectSubEvents()
+    subEvents: collectSubEvents(),
+    attributes: collectAttributes()
   };
 
   if (!data.title) return;
@@ -366,6 +444,46 @@ function collectSubEvents() {
   })).filter(s => s.label || s.date.approximate);
 }
 
+// ===== Attributes (clues used to infer the date) =====
+// Build a single clue row. Values are assigned via the .value property (not
+// interpolated into innerHTML) so that quotes or special characters in a clue
+// cannot break the markup.
+function makeAttributeRow(key = '', value = '') {
+  const row = document.createElement('div');
+  row.className = 'attr-row';
+  row.innerHTML = `
+    <input type="text" class="attr-key" placeholder="moon">
+    <input type="text" class="attr-value" placeholder="full">
+    <button type="button" class="attr-del">✕</button>
+  `;
+  row.querySelector('.attr-key').value = key;
+  row.querySelector('.attr-value').value = value;
+  row.querySelector('.attr-del').addEventListener('click', () => row.remove());
+  return row;
+}
+
+function renderAttributes(attrs) {
+  const list = document.getElementById('attributes-list');
+  list.innerHTML = '';
+  (attrs || []).forEach(attr => {
+    list.appendChild(makeAttributeRow(attr.key || '', attr.value || ''));
+  });
+}
+
+document.getElementById('btn-add-attribute').addEventListener('click', () => {
+  document.getElementById('attributes-list').appendChild(makeAttributeRow());
+});
+
+// Collect clue rows into [{key, value}], skipping pairs whose key is empty or
+// whitespace-only (Req 9.2 / Property 12). Values are preserved verbatim.
+function collectAttributes() {
+  const rows = document.querySelectorAll('#attributes-list .attr-row');
+  return [...rows].map(row => ({
+    key: row.querySelector('.attr-key').value.trim(),
+    value: row.querySelector('.attr-value').value
+  })).filter(a => a.key);
+}
+
 // ===== Canvas event callbacks =====
 renderer.onEventClick = (event) => {
   if (connectMode) {
@@ -427,9 +545,26 @@ function populateParentSelect() {
   });
 }
 
+// Default hint for the universe-name input (restored when there's no media
+// title to derive a suggestion from).
+const DEFAULT_UNI_NAME_PLACEHOLDER = 'Universe name (e.g. Earth-616, The Witcher, World History)';
+
+// When the event form is open and its media title is filled, suggest a universe
+// name derived from that title as the input placeholder (Req 2.5). Otherwise
+// restore the default hint so a stale suggestion from a previous open is cleared.
+function suggestUniverseName() {
+  const uniName = document.getElementById('uni-name');
+  const panelOpen = !panel.classList.contains('hidden');
+  const mediaTitle = document.getElementById('ev-media-title').value.trim();
+  uniName.placeholder = (panelOpen && mediaTitle)
+    ? universeNameFromMedia(mediaTitle)
+    : DEFAULT_UNI_NAME_PLACEHOLDER;
+}
+
 document.getElementById('btn-add-universe').addEventListener('click', () => {
   renderUniverseList();
   populateParentSelect();
+  suggestUniverseName();
   dialog.showModal();
 });
 

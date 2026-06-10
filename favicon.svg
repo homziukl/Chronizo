@@ -1,22 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#ff6b00"/>
-      <stop offset="100%" stop-color="#d4a843"/>
-    </linearGradient>
-  </defs>
-  <!-- Hourglass frame -->
-  <rect x="14" y="4" width="36" height="4" rx="2" fill="url(#g)"/>
-  <rect x="14" y="56" width="36" height="4" rx="2" fill="url(#g)"/>
-  <!-- Glass body -->
-  <path d="M18 8 L18 22 Q18 32 32 32 Q46 32 46 22 L46 8 Z" fill="none" stroke="#ff6b00" stroke-width="2.5" opacity="0.8"/>
-  <path d="M18 56 L18 42 Q18 32 32 32 Q46 32 46 42 L46 56 Z" fill="none" stroke="#ff6b00" stroke-width="2.5" opacity="0.8"/>
-  <!-- Sand top -->
-  <path d="M22 10 L22 20 Q22 28 32 30 Q42 28 42 20 L42 10 Z" fill="#d4a843" opacity="0.3"/>
-  <!-- Sand bottom -->
-  <path d="M24 54 L24 46 Q24 38 32 36 Q40 38 40 46 L40 54 Z" fill="#ff6b00" opacity="0.5"/>
-  <!-- Sand stream -->
-  <line x1="32" y1="30" x2="32" y2="36" stroke="#d4a843" stroke-width="1.5" opacity="0.6"/>
-  <!-- Glow dot center -->
-  <circle cx="32" cy="32" r="2" fill="#ff6b00" opacity="0.9"/>
+  <!-- Neutral, brand-agnostic chronology mark: a clock above a timeline axis. -->
+  <!-- Strokes are kept bold so the motif stays legible when scaled down to a 16px browser-tab favicon. -->
+
+  <!-- Timeline axis with a direction arrow -->
+  <line x1="9" y1="52" x2="49" y2="52" stroke="#64748b" stroke-width="4" stroke-linecap="round"/>
+  <path d="M47 47 L57 52 L47 57 Z" fill="#64748b"/>
+
+  <!-- Bold tick marks along the axis -->
+  <line x1="18" y1="48" x2="18" y2="56" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+  <line x1="30" y1="48" x2="30" y2="56" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+  <line x1="42" y1="48" x2="42" y2="56" stroke="#94a3b8" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Clock dial -->
+  <circle cx="29" cy="23" r="18" fill="#f1f5f9" stroke="#334155" stroke-width="4"/>
+
+  <!-- Cardinal hour marks (sized to survive downscaling) -->
+  <line x1="29" y1="9"  x2="29" y2="13" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="43" y1="23" x2="39" y2="23" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="29" y1="37" x2="29" y2="33" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="15" y1="23" x2="19" y2="23" stroke="#334155" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Clock hands -->
+  <line x1="29" y1="23" x2="29" y2="13" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+  <line x1="29" y1="23" x2="38" y2="26" stroke="#2563eb" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="29" cy="23" r="2.6" fill="#2563eb"/>
 </svg>

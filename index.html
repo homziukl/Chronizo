@@ -22,6 +22,7 @@
         <button id="btn-save" title="Save as JSON">⟑ Save</button>
         <button id="btn-csv-export" title="Export to CSV">📊 CSV↓</button>
         <button id="btn-csv-import" title="Import from CSV">📊 CSV↑</button>
+        <button id="btn-quick-add" title="Paste a text formula to add one or more events">⚡ Quick Add</button>
         <button id="btn-example" title="Load MCU example">☆ MCU</button>
         <button id="btn-example-history" title="Load World History">☆ History</button>
         <span class="separator">|</span>
@@ -76,7 +77,7 @@
       </div>
       <form id="event-form">
         <label>Title
-          <input type="text" id="ev-title" required placeholder="Battle of New York">
+          <input type="text" id="ev-title" required placeholder="Battle of New York · Fall of Rome · Red Wedding">
         </label>
 
         <label>Official Universe
@@ -95,7 +96,7 @@
             <input type="date" id="ev-date-exact">
           </label>
           <label>Approximate (year or text)
-            <input type="text" id="ev-date-approx" placeholder="~2012 or 'Before Age of Ultron'">
+            <input type="text" id="ev-date-approx" placeholder="~2012 or 'Before the coronation'">
           </label>
           <label>Date Range — From
             <input type="text" id="ev-date-from" placeholder="1940 or 1940-06-01">
@@ -136,7 +137,7 @@
             </select>
           </label>
           <label>Title
-            <input type="text" id="ev-media-title" placeholder="Avengers: Endgame">
+            <input type="text" id="ev-media-title" placeholder="Avengers: Endgame · The Witcher · Chernobyl">
           </label>
           <label>Episode / Issue
             <input type="text" id="ev-media-episode" placeholder="S01E05 or #127">
@@ -165,26 +166,26 @@
         </label>
 
         <label>Tags (comma separated)
-          <input type="text" id="ev-tags" placeholder="avengers, invasion, earth">
+          <input type="text" id="ev-tags" placeholder="battle, invasion, dynasty">
         </label>
 
         <label>Characters (comma separated)
-          <input type="text" id="ev-characters" placeholder="Steve Rogers, Tony Stark, Napoleon...">
+          <input type="text" id="ev-characters" placeholder="Napoleon, Geralt, Tony Stark...">
         </label>
 
         <fieldset>
           <legend>Location</legend>
           <label>Realm / Dimension
-            <input type="text" id="ev-loc-realm" placeholder="Nine Realms, Dark Dimension...">
+            <input type="text" id="ev-loc-realm" placeholder="Nine Realms, Middle-earth, Underworld...">
           </label>
           <label>Planet / World
-            <input type="text" id="ev-loc-planet" placeholder="Earth, Asgard, Vormir...">
+            <input type="text" id="ev-loc-planet" placeholder="Earth, Mars, Arrakis...">
           </label>
           <label>Region / Territory
-            <input type="text" id="ev-loc-region" placeholder="Europe, Wakanda, Sokovia...">
+            <input type="text" id="ev-loc-region" placeholder="Europe, Westeros, Wakanda...">
           </label>
           <label>Place / City
-            <input type="text" id="ev-loc-place" placeholder="New York, Berlin, Kamar-Taj...">
+            <input type="text" id="ev-loc-place" placeholder="New York, Berlin, Winterfell...">
           </label>
         </fieldset>
 
@@ -193,6 +194,20 @@
           <legend>Timeline Segments (flashbacks, callbacks)</legend>
           <div id="sub-events-list"></div>
           <button type="button" id="btn-add-sub-event" class="small-btn">+ Add segment</button>
+        </fieldset>
+
+        <!-- Clues / attributes — premises used to infer the date (path A) -->
+        <fieldset id="attributes-fieldset">
+          <legend>Wskazówki (clues do wnioskowania daty)</legend>
+          <div id="attributes-list"></div>
+          <button type="button" id="btn-add-attribute" class="small-btn">+ Add clue</button>
+        </fieldset>
+
+        <!-- Clues / attributes used to infer the event date -->
+        <fieldset id="attributes-fieldset">
+          <legend>Wskazówki (clues do wnioskowania daty)</legend>
+          <div id="attributes-list"></div>
+          <button type="button" id="btn-add-attribute" class="small-btn">+ Add clue</button>
         </fieldset>
 
         <label>Custom Sort Order
@@ -246,7 +261,7 @@
       <h2>Manage Universes</h2>
       <div id="universe-list"></div>
       <div class="dialog-add">
-        <input type="text" id="uni-name" placeholder="Universe name (e.g. Earth-616)">
+        <input type="text" id="uni-name" placeholder="Universe name (e.g. Earth-616, The Witcher, World History)">
         <input type="color" id="uni-color" value="#a855f7">
         <select id="uni-parent" title="Branches from...">
           <option value="">— branches from main —</option>
@@ -270,7 +285,7 @@
         </select>
       </label>
       <label>Character / Object
-        <input type="text" id="conn-character" placeholder="Spider-Man, Infinity Stone...">
+        <input type="text" id="conn-character" placeholder="Spider-Man, One Ring, Excalibur...">
       </label>
       <label>Label
         <input type="text" id="conn-label" placeholder="Short description...">
@@ -281,6 +296,23 @@
       <div class="form-actions">
         <button id="btn-save-conn">Create Connection</button>
         <button id="btn-cancel-conn">Cancel</button>
+      </div>
+    </dialog>
+
+    <!-- Quick Add — paste a text formula -->
+    <dialog id="quickadd-dialog">
+      <h2>⚡ Quick Add — paste formula</h2>
+      <p style="color:#8a8778;font-size:11px;margin-bottom:8px">
+        One <code>key: value</code> per line. Separate multiple events with a line containing only <code>---</code>.
+        Unknown keys (moon, weather...) become clue attributes. Date should already be resolved.
+      </p>
+      <textarea id="quickadd-text" rows="14" placeholder="title: Battle of the Forest&#10;universe: The Witcher&#10;media: The Witcher S01E05&#10;date: 1267&#10;season: winter&#10;characters: Geralt, Ciri&#10;evidence: shown&#10;moon: full&#10;reasoning: dated from full moon near release&#10;seg: flashback @1257 &quot;Ciri's childhood&quot;&#10;---&#10;title: Next event&#10;date: 2019-04-26"></textarea>
+      <div id="quickadd-feedback" style="font-size:11px;margin-top:6px;min-height:16px"></div>
+      <div class="form-actions">
+        <button id="btn-quickadd-parse">Add events</button>
+        <button id="btn-quickadd-spec" type="button">Show format</button>
+        <button id="btn-quickadd-prompt" type="button" title="Copy a ready-to-use prompt explaining the formula to any AI">📋 AI Prompt</button>
+        <button id="btn-quickadd-cancel" type="button">Cancel</button>
       </div>
     </dialog>
 

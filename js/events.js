@@ -43,6 +43,9 @@ export function createEvent(overrides = {}) {
     subEvents: [],
     // Characters involved in this event
     characters: [],  // ["Steve Rogers", "Tony Stark"] or ["Napoleon Bonaparte"]
+    // Free-form attributes — clues used to reason about placement (moon phase,
+    // weather, referenced real events...). Each: { key, value }
+    attributes: [],
     // Each sub-event: { id, label, date: { approximate, season }, location: { place }, note }
     ...overrides
   };
@@ -132,11 +135,36 @@ export function getLocationKey(ev) {
   return [ev.location.planet, ev.location.region].filter(Boolean).join('/') || '';
 }
 
-// Get numeric time value — uses rangeFrom as start if available
+// Get numeric time value — uses rangeFrom as start if available.
+// Fallback chain: exact → rangeFrom → approximate → releaseDate.
+// When only the release date is known, the event is positioned near its
+// real-world release (see isPositionedByRelease).
 export function getTimeValue(ev) {
   if (ev.date.exact) return parseApproxTime(ev.date.exact, ev.date.season);
   if (ev.date.rangeFrom) return parseApproxTime(ev.date.rangeFrom, ev.date.season);
-  return parseApproxTime(ev.date.approximate, ev.date.season);
+  if (ev.date.approximate) return parseApproxTime(ev.date.approximate, ev.date.season);
+  if (ev.releaseDate) return parseApproxTime(ev.releaseDate, ev.date.season);
+  return 0;
+}
+
+// True when the event has any in-universe date (exact, range start, or
+// approximate). Centralizes the Date_In_Universe rule shared by getTimeValue,
+// isPositionedByRelease, and isUntimed.
+export function hasInUniverseDate(ev) {
+  return !!(ev.date.exact || ev.date.rangeFrom || ev.date.approximate);
+}
+
+// True when the event has no in-universe date and is placed using its
+// real-world release date as an approximation.
+export function isPositionedByRelease(ev) {
+  return !hasInUniverseDate(ev) && !!ev.releaseDate;
+}
+
+// True when the event has neither an in-universe date nor a release date,
+// so it has no time source at all. The renderer uses this to place such
+// events in a dedicated, deterministic zone instead of at position 0.
+export function isUntimed(ev) {
+  return !hasInUniverseDate(ev) && !ev.releaseDate;
 }
 
 // Get end time for range events
