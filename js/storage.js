@@ -76,8 +76,9 @@ export function loadFromFile() {
           }
           // Ensure connections array exists (backward compat)
           if (!data.connections) data.connections = [];
-          // Normalize missing event list fields (attributes/characters/subEvents)
-          // to empty arrays; universes (incl. main universe name) are untouched.
+          // Normalize missing event fields (characters/subEvents/appearance);
+          // tolerate the deprecated `attributes` field. The main universe name
+          // stored in the file is preserved exactly.
           resolve(normalizeLoadedProject(data));
         } catch (err) {
           reject(err);
@@ -107,16 +108,33 @@ export function loadFromLocalStorage() {
 }
 
 // Backward compatibility for loaded projects (file or localStorage).
-// Guarantees each event has the list fields attributes/characters/subEvents
-// as arrays (older files may omit them). It MUST NOT touch universes — the
-// main universe name stored in the file is preserved exactly (Req 11.3).
+// Guarantees each event has the list fields characters/subEvents as arrays
+// and an appearance object (older files may omit them, Req 15.1, 15.2, 15.6).
+// The deprecated `attributes` field is TOLERATED without error and silently
+// detached so it never round-trips back into exports (Req 15.3); clues are no
+// longer an event field. It MUST NOT touch universe data beyond adding a
+// missing appearance object — the main universe name stored in the file is
+// preserved exactly (Req 15.4, 9.2).
 function normalizeLoadedProject(project) {
   if (Array.isArray(project?.events)) {
     project.events.forEach(ev => {
       if (!ev) return;
-      if (!Array.isArray(ev.attributes)) ev.attributes = [];
       if (!Array.isArray(ev.characters)) ev.characters = [];
       if (!Array.isArray(ev.subEvents)) ev.subEvents = [];
+      if (!ev.appearance || typeof ev.appearance !== 'object') {
+        ev.appearance = { icon: '', background: '' };
+      }
+      // Tolerate the deprecated clues field: drop it so it is neither editable
+      // nor re-exported, but never fail the load because of it.
+      if ('attributes' in ev) delete ev.attributes;
+    });
+  }
+  if (Array.isArray(project?.universes)) {
+    project.universes.forEach(uni => {
+      if (!uni) return;
+      if (!uni.appearance || typeof uni.appearance !== 'object') {
+        uni.appearance = { icon: '', background: '' };
+      }
     });
   }
   return project;
@@ -205,7 +223,7 @@ export function exportToCSV(project) {
     'media_type', 'media_title', 'media_episode',
     'evidence', 'source', 'reasoning',
     'location_realm', 'location_planet', 'location_region', 'location_place',
-    'tags', 'characters', 'attributes', 'sub_events', 'custom_sort_order'
+    'tags', 'characters', 'sub_events', 'custom_sort_order'
   ];
 
   const rows = project.events.map(ev => {
@@ -237,7 +255,6 @@ export function exportToCSV(project) {
       loc.place || '',
       (ev.tags || []).join('; '),
       (ev.characters || []).join('; '),
-      serializeAttributes(ev.attributes),
       (ev.subEvents && ev.subEvents.length) ? JSON.stringify(ev.subEvents) : '',
       ev.sortOrder?.custom || 0
     ].map(v => `"${String(v).replace(/"/g, '""')}"`);
@@ -341,7 +358,6 @@ function parseCSV(text) {
       },
       tags: (get('tags') || '').split(';').map(t => t.trim()).filter(Boolean),
       characters: (get('characters') || '').split(';').map(c => c.trim()).filter(Boolean),
-      attributes: parseAttributes(get('attributes')),
       subEvents: parseSubEventsCell(get('sub_events')),
       sortOrder: { custom: parseInt(get('custom_sort_order')) || 0 }
     });
@@ -375,28 +391,7 @@ function randomColor() {
   return `hsl(${hue}, 70%, 55%)`;
 }
 
-// ===== Attribute serialization (free-form clue list) =====
-// In CSV a cell stores attributes as "key=value; key=value".
-export function serializeAttributes(attrs) {
-  if (!Array.isArray(attrs) || attrs.length === 0) return '';
-  return attrs
-    .filter(a => a && a.key)
-    .map(a => `${String(a.key).replace(/[;=]/g, ' ')}=${String(a.value ?? '').replace(/;/g, ',')}`)
-    .join('; ');
-}
-
-export function parseAttributes(cell) {
-  if (!cell) return [];
-  return cell.split(';').map(pair => {
-    const idx = pair.indexOf('=');
-    if (idx === -1) {
-      const k = pair.trim();
-      return k ? { key: k, value: '' } : null;
-    }
-    return { key: pair.slice(0, idx).trim(), value: pair.slice(idx + 1).trim() };
-  }).filter(a => a && a.key);
-}
-
+// ===== Sub-events =====
 // Sub-events are stored in a CSV cell as a JSON array string.
 function parseSubEventsCell(cell) {
   if (!cell || !cell.trim()) return [];

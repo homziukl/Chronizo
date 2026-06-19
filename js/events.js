@@ -43,9 +43,8 @@ export function createEvent(overrides = {}) {
     subEvents: [],
     // Characters involved in this event
     characters: [],  // ["Steve Rogers", "Tony Stark"] or ["Napoleon Bonaparte"]
-    // Free-form attributes — clues used to reason about placement (moon phase,
-    // weather, referenced real events...). Each: { key, value }
-    attributes: [],
+    // Block appearance — optional icon and background per event ("" = default)
+    appearance: { icon: '', background: '' },
     // Each sub-event: { id, label, date: { approximate, season }, location: { place }, note }
     ...overrides
   };
@@ -69,7 +68,20 @@ export function createUniverse(name, color, isMain = false, parentUniverse = nul
     id: crypto.randomUUID(),
     name, color, isMain,
     description: '',
-    parentUniverse
+    parentUniverse,
+    // Block appearance — optional icon and background per universe ("" = default)
+    appearance: { icon: '', background: '' }
+  };
+}
+
+// Pure appearance helper with default fallback. Returns the icon/background of
+// an event or universe, or empty strings when appearance is missing or invalid.
+// Centralizes the default-appearance rule used by the renderer for both events
+// and universes (no/invalid appearance -> empty fields, no error).
+export function getAppearance(obj) {
+  return {
+    icon: obj?.appearance?.icon || '',
+    background: obj?.appearance?.background || ''
   };
 }
 

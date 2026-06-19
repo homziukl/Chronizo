@@ -2,9 +2,10 @@
 // Full feature set: branches, sub-wires, evidence opacity, date ranges,
 // sub-events, minimap, connect mode, filtering
 
-import { sortEvents } from './sorting.js';
+import { sortEvents, characterThreads } from './sorting.js';
 import { getTimeValue, getTimeEndValue, hasDateRange, getLocationKey,
-         getLocationString, EVIDENCE_LEVELS, isPositionedByRelease, isUntimed } from './events.js';
+         getLocationString, EVIDENCE_LEVELS, isPositionedByRelease, isUntimed,
+         getAppearance } from './events.js';
 
 export class TimelineRenderer {
   constructor(canvas) {
@@ -33,6 +34,10 @@ export class TimelineRenderer {
     this.MAX_GAP = 400;
     this.WIRE_SPREAD = 16;
     this.BRANCH_CURVE = 60;
+    // Vertical step used to fan out events that collide at the same (x, y)
+    // within a universe (same time slot + same location wire), so overlapping
+    // events stay individually readable. See _drawBranches de-overlap pass.
+    this.STACK_GAP = 18;
     // "Bez źródła czasu" (no time source) zone — untimed events (Req 5.3) are
     // laid out here, after the last real time slot, instead of colliding with
     // dated events at the axis start. Spacing is fixed so positions are a
@@ -87,9 +92,12 @@ export class TimelineRenderer {
     this._drawBranches(layout);
     this._drawDateRanges(layout);
     this._drawConnections();
+    // Character threads (Linie_Postaci, Req 7.2/7.3/7.5) — drawn before the
+    // event blocks so the connecting lines sit behind the cards.
+    this._drawCharacterThreads();
     // Label collision tracking — collect placed label rects
     this._labelRects = [];
-    this.eventPositions.forEach(ep => this._drawEventDot(ep));
+    this.eventPositions.forEach(ep => this._drawEventBlock(ep));
     this._drawSubEventMarkers(layout);
 
     ctx.restore();
@@ -350,6 +358,23 @@ export class TimelineRenderer {
         });
       }
 
+      // De-overlap: events sharing the same (x, y) — same time slot AND same
+      // location wire — would render exactly on top of each other and become
+      // unreadable. Fan each collision group vertically around its base Y by a
+      // fixed step. Deterministic (depends only on the stable sorted order), so
+      // re-rendering the same state yields identical positions (Property 10).
+      const collisionGroups = new Map();
+      uniEvents.forEach(ue => {
+        const key = `${Math.round(ue.x)}:${Math.round(ue.y)}`;
+        if (!collisionGroups.has(key)) collisionGroups.set(key, []);
+        collisionGroups.get(key).push(ue);
+      });
+      collisionGroups.forEach(group => {
+        if (group.length < 2) return;
+        const mid = (group.length - 1) / 2;
+        group.forEach((ue, i) => { ue.y += (i - mid) * this.STACK_GAP; });
+      });
+
       if (uniEvents.length === 0 && !info.isMain) return;
 
       if (!info.isMain) {
@@ -370,6 +395,24 @@ export class TimelineRenderer {
           this._drawWire(wireStart, info.y, lastX, uni.color, 0.6, uni.id);
         }
       }
+
+      // De-overlap: events that resolve to the same point (same time slot and
+      // same location wire) are fanned out vertically so their dots stay
+      // individually visible, clickable and hoverable. Deterministic — uses the
+      // build order, so re-rendering the same state yields identical positions.
+      const colocated = new Map();
+      uniEvents.forEach(ue => {
+        const key = `${Math.round(ue.x)}|${Math.round(ue.y)}`;
+        if (!colocated.has(key)) colocated.set(key, []);
+        colocated.get(key).push(ue);
+      });
+      colocated.forEach(group => {
+        if (group.length < 2) return;
+        const spread = this.EVENT_RADIUS * 2.6;
+        group.forEach((ue, i) => {
+          ue.y += (i - (group.length - 1) / 2) * spread;
+        });
+      });
 
       uniEvents.forEach(ue => {
         const evi = EVIDENCE_LEVELS[ue.ev.evidence] || EVIDENCE_LEVELS.shown;
@@ -629,6 +672,162 @@ export class TimelineRenderer {
     ctx.beginPath(); ctx.arc(startX, parentY, 3, 0, Math.PI * 2);
     ctx.fillStyle = color; ctx.globalAlpha = 0.9; ctx.fill();
     ctx.restore();
+  }
+
+  // ===== CHARACTER THREADS (Linie_Postaci) =====
+  // Draws one polyline per character connecting the event blocks the character
+  // appears in, in the active sort order (Req 7.2). Each character gets a
+  // stable, distinguishable color derived from its name, plus a name label at
+  // the first occurrence (Req 7.3). A character appearing in a single event
+  // gets no connecting line (Req 7.5).
+  _drawCharacterThreads() {
+    if (!this.eventPositions || this.eventPositions.length === 0) return;
+    const ctx = this.ctx;
+    const events = this.filteredEvents || this.project.events;
+    const threads = characterThreads(events, this.sortMode);
+    const posById = new Map(this.eventPositions.map(ep => [ep.id, ep]));
+
+    threads.forEach((ids, name) => {
+      const pts = ids.map(id => posById.get(id)).filter(Boolean);
+      if (pts.length < 2) return; // single appearance → no line (Req 7.5)
+      const color = this._characterColor(name);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.stroke();
+      // Name label at the first occurrence so the thread is identifiable.
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = color;
+      ctx.font = '9px "Share Tech Mono",monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(name, pts[0].x + 8, pts[0].y - 8);
+      ctx.restore();
+    });
+  }
+
+  // Stable per-character color (hash of the name → HSL hue). Deterministic so a
+  // character keeps the same thread color across renders.
+  _characterColor(name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return `hsl(${hash % 360}, 70%, 60%)`;
+  }
+
+  // Build a rounded-rectangle path (does not fill/stroke — caller decides).
+  _roundRect(x, y, w, h, r) {
+    const ctx = this.ctx;
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  // Readable label color. Theme support (Req 13) lands in a later slice; until
+  // then this defaults to the dark-theme palette. Kept centralized so the theme
+  // slice only has to change this one place.
+  _labelColor(isHovered) {
+    if (this.theme === 'light') return '#000';
+    return isHovered ? '#fff' : '#e0ddd4';
+  }
+
+  // ===== EVENT BLOCKS (cards) =====
+  // Renders an event as a card/block with its title (Req 7.1), an optional icon
+  // next to the title and an optional background, both from appearance
+  // (Req 9.3/9.4); a missing/empty appearance falls back to the universe color
+  // (Req 9.6). Keeps the release-positioning ("≈", Req 5.2) and no-time-source
+  // ("⌀", Req 5.3) markers and the sub-event count badge. Stores the block rect
+  // on the position record so hit-testing uses the card bounds.
+  _drawEventBlock(ep) {
+    const ctx = this.ctx;
+    const ev = ep.event;
+    const isHovered = this.hoveredEvent === ep.id;
+    const isSelected = this._selectedIds?.has(ep.id);
+    const alpha = ep.opacity || 1;
+    const app = getAppearance(ev);
+
+    const maxLen = this.zoom > 0.6 ? 22 : (this.zoom > 0.3 ? 14 : 8);
+    const title = ev.title || '(untitled)';
+    const label = title.length > maxLen ? title.slice(0, maxLen - 1) + '…' : title;
+    const fontSize = isHovered ? 11 : 10;
+    ctx.font = `bold ${fontSize}px "Share Tech Mono",monospace`;
+    const text = (app.icon ? app.icon + ' ' : '') + label;
+    const textW = ctx.measureText(text).width;
+    const padX = 8, padY = 5;
+    const bw = textW + padX * 2;
+    const bh = fontSize + padY * 2;
+    const bx = ep.x - bw / 2;
+    const by = ep.y - bh / 2;
+
+    ctx.save();
+    if (this.connectMode) { ctx.shadowColor = '#a855f7'; ctx.shadowBlur = 12; }
+    else { ctx.shadowColor = ep.color; ctx.shadowBlur = isHovered ? 16 : 6; }
+    // Card background — appearance.background overrides the universe-color tint.
+    const bg = app.background || ep.color;
+    ctx.globalAlpha = alpha * (app.background ? 0.92 : 0.22);
+    this._roundRect(bx, by, bw, bh, 5);
+    ctx.fillStyle = bg; ctx.fill();
+    // Border in the universe color (white when selected).
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = isSelected ? 2 : 1;
+    ctx.strokeStyle = isSelected ? '#fff' : ep.color;
+    if (ep.dash && ep.dash.length) ctx.setLineDash(ep.dash);
+    this._roundRect(bx, by, bw, bh, 5);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Title text.
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = this._labelColor(isHovered);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, ep.x, ep.y + 0.5);
+    ctx.restore();
+
+    // Hit rect for click/hover (used by _hitTest in preference to the radius).
+    ep.block = { x: bx, y: by, w: bw, h: bh };
+
+    // ===== Release-positioning marker (Req 5.2) =====
+    if (isPositionedByRelease(ev)) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, alpha + 0.2);
+      ctx.fillStyle = ep.color;
+      ctx.font = '12px "Share Tech Mono",monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('≈', bx + bw + 8, by);
+      ctx.restore();
+    }
+
+    // ===== No-time-source marker (Req 5.3) =====
+    if (isUntimed(ev)) {
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#a0a0ae';
+      ctx.font = '12px "Share Tech Mono",monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⌀', bx + bw + 8, by);
+      ctx.restore();
+    }
+
+    // ===== Sub-event count badge =====
+    if (ev.subEvents?.length > 0) {
+      ctx.save();
+      ctx.fillStyle = ep.color; ctx.globalAlpha = 0.7;
+      ctx.font = '8px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`+${ev.subEvents.length}`, bx + bw + 8, by + bh);
+      ctx.restore();
+    }
   }
 
   // ===== EVENT DOTS (with evidence opacity + label collision avoidance) =====
@@ -1029,8 +1228,15 @@ export class TimelineRenderer {
     const mx = (e.clientX - r.left - this.offsetX) / this.zoom;
     const my = (e.clientY - r.top - this.offsetY) / this.zoom;
     for (const ep of this.eventPositions) {
-      const dx = mx - ep.x, dy = my - ep.y;
-      if (dx * dx + dy * dy < (ep.radius + 5) ** 2) return ep;
+      // Prefer the block bounds (event cards) when available; fall back to the
+      // legacy radius hit-test for any position without a block rect.
+      if (ep.block) {
+        const b = ep.block;
+        if (mx >= b.x - 3 && mx <= b.x + b.w + 3 && my >= b.y - 3 && my <= b.y + b.h + 3) return ep;
+      } else {
+        const dx = mx - ep.x, dy = my - ep.y;
+        if (dx * dx + dy * dy < (ep.radius + 5) ** 2) return ep;
+      }
     }
     return null;
   }
@@ -1060,10 +1266,6 @@ export class TimelineRenderer {
     if (ev.media?.title) h += `<div class="tt-meta">🎬 ${ev.media.title} ${ev.media.episode || ''}</div>`;
     if (ev.source) h += `<div class="tt-meta">📖 ${ev.source}</div>`;
     if (ev.characters?.length) h += `<div class="tt-meta">👤 ${ev.characters.join(', ')}</div>`;
-    if (ev.attributes?.length) {
-      const clues = ev.attributes.map(a => a.value ? `${a.key}: ${a.value}` : a.key).join(' · ');
-      h += `<div class="tt-meta">🧩 ${clues}</div>`;
-    }
     if (ev.reasoning) h += `<div class="tt-reasoning">"${ev.reasoning}"</div>`;
 
     // Sub-events

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -20,11 +20,8 @@
         <button id="btn-load" title="Load JSON file">⟐ Load</button>
         <button id="btn-merge" title="Merge another timeline into current">⊕ Merge</button>
         <button id="btn-save" title="Save as JSON">⟑ Save</button>
-        <button id="btn-csv-export" title="Export to CSV">📊 CSV↓</button>
-        <button id="btn-csv-import" title="Import from CSV">📊 CSV↑</button>
-        <button id="btn-quick-add" title="Paste a text formula to add one or more events">⚡ Quick Add</button>
-        <button id="btn-example" title="Load MCU example">☆ MCU</button>
-        <button id="btn-example-history" title="Load World History">☆ History</button>
+        <button id="btn-csv-export" title="Export to CSV (backup / Excel)">📊 CSV↓</button>
+        <button id="btn-quick-add" title="Paste an AI-generated formula to add one or more events">⚡ Quick Add</button>
         <span class="separator">|</span>
         <button id="btn-add-event" title="Add event">+ Event</button>
         <button id="btn-add-universe" title="Add universe">+ Universe</button>
@@ -33,12 +30,14 @@
         <select id="sort-mode">
           <option value="in-universe">In-Universe Chronology</option>
           <option value="release">Release Order</option>
-          <option value="custom">Custom Order</option>
+          <option value="mix">Mixed (chronology + release)</option>
         </select>
         <input type="text" id="search-box" placeholder="🔍 Search..." class="search-input">
         <select id="filter-universe" title="Filter by universe">
           <option value="">All Universes</option>
         </select>
+        <span class="separator">|</span>
+        <button id="theme-toggle" title="Toggle dark / light theme">🌓 Theme</button>
         <select id="filter-evidence" title="Filter by evidence">
           <option value="">All Evidence</option>
           <option value="shown">👁 Shown</option>
@@ -189,25 +188,22 @@
           </label>
         </fieldset>
 
+        <!-- Appearance: optional icon + background per event -->
+        <fieldset id="appearance-fieldset">
+          <legend>Appearance</legend>
+          <label>Icon (emoji or short symbol)
+            <input type="text" id="ev-icon" maxlength="4" placeholder="🛡 🗡 👑">
+          </label>
+          <label>Background color
+            <input type="color" id="ev-bg" title="Block background color">
+          </label>
+        </fieldset>
+
         <!-- Sub-events / timeline segments within this event -->
         <fieldset id="sub-events-fieldset">
           <legend>Timeline Segments (flashbacks, callbacks)</legend>
           <div id="sub-events-list"></div>
           <button type="button" id="btn-add-sub-event" class="small-btn">+ Add segment</button>
-        </fieldset>
-
-        <!-- Clues / attributes — premises used to infer the date (path A) -->
-        <fieldset id="attributes-fieldset">
-          <legend>Wskazówki (clues do wnioskowania daty)</legend>
-          <div id="attributes-list"></div>
-          <button type="button" id="btn-add-attribute" class="small-btn">+ Add clue</button>
-        </fieldset>
-
-        <!-- Clues / attributes used to infer the event date -->
-        <fieldset id="attributes-fieldset">
-          <legend>Wskazówki (clues do wnioskowania daty)</legend>
-          <div id="attributes-list"></div>
-          <button type="button" id="btn-add-attribute" class="small-btn">+ Add clue</button>
         </fieldset>
 
         <label>Custom Sort Order
@@ -263,6 +259,8 @@
       <div class="dialog-add">
         <input type="text" id="uni-name" placeholder="Universe name (e.g. Earth-616, The Witcher, World History)">
         <input type="color" id="uni-color" value="#a855f7">
+        <input type="text" id="uni-icon" maxlength="4" placeholder="Icon 🌍" title="Universe icon (emoji)">
+        <input type="color" id="uni-bg" title="Universe background color">
         <select id="uni-parent" title="Branches from...">
           <option value="">— branches from main —</option>
         </select>
@@ -304,7 +302,7 @@
       <h2>⚡ Quick Add — paste formula</h2>
       <p style="color:#8a8778;font-size:11px;margin-bottom:8px">
         One <code>key: value</code> per line. Separate multiple events with a line containing only <code>---</code>.
-        Unknown keys (moon, weather...) become clue attributes. Date should already be resolved.
+        Unrecognized keys are skipped with a warning — clues belong in the free-form description you give to the AI, not in the event block. Date should already be resolved.
       </p>
       <textarea id="quickadd-text" rows="14" placeholder="title: Battle of the Forest&#10;universe: The Witcher&#10;media: The Witcher S01E05&#10;date: 1267&#10;season: winter&#10;characters: Geralt, Ciri&#10;evidence: shown&#10;moon: full&#10;reasoning: dated from full moon near release&#10;seg: flashback @1257 &quot;Ciri's childhood&quot;&#10;---&#10;title: Next event&#10;date: 2019-04-26"></textarea>
       <div id="quickadd-feedback" style="font-size:11px;margin-top:6px;min-height:16px"></div>

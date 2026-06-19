@@ -14,7 +14,6 @@
 //   season: winter
 //   characters: Geralt, Ciri
 //   evidence: shown
-//   moon: full                     # unknown keys -> attributes (clues)
 //   reasoning: Mentioned in dialogue
 //   seg: flashback @1257 "Ciri's childhood"
 //   seg: timetravel @1300 new "Jump forward"
@@ -22,8 +21,9 @@
 //   title: Next event
 //   date: 1268
 //
-// Path A: the in-universe date is resolved by an AI BEFORE pasting. Clue keys
-// (moon, weather, ...) are preserved as attributes for traceability.
+// Path A: the in-universe date is resolved by an AI BEFORE pasting. Clues
+// (moon phase, weather, ...) belong in the free-form description fed to the AI,
+// not as event fields — unrecognized keys are skipped with a warning.
 
 const SEASON_MAP = {
   spring: 'spring', wiosna: 'spring',
@@ -46,16 +46,17 @@ const SEG_TYPES = {
 const ISO_DATE = /^-?\d{1,6}-\d{2}-\d{2}$/;
 const EPISODE_RE = /(S\d{1,2}E\d{1,3}|#\d+|odc\.?\s*\d+|ep\.?\s*\d+)/i;
 
-// Parse a whole formula string into { events, errors }.
+// Parse a whole formula string into { events, errors, warnings }.
 export function parseFormula(text) {
   const errors = [];
-  if (!text || !text.trim()) return { events: [], errors: ['Empty formula'] };
+  const warnings = [];
+  if (!text || !text.trim()) return { events: [], errors: ['Empty formula'], warnings };
 
   const blocks = splitBlocks(text);
   const events = [];
 
   blocks.forEach((block, i) => {
-    const parsed = parseBlock(block);
+    const parsed = parseBlock(block, i + 1, warnings);
     if (!parsed) return; // empty block, skip silently
     if (!parsed.title) {
       errors.push(`Block ${i + 1}: missing "title:" — skipped`);
@@ -67,7 +68,7 @@ export function parseFormula(text) {
   if (events.length === 0 && errors.length === 0) {
     errors.push('No events found');
   }
-  return { events, errors };
+  return { events, errors, warnings };
 }
 
 // Split on lines that contain only a separator: --- or ===
@@ -86,7 +87,7 @@ function splitBlocks(text) {
   return blocks.filter(b => b.some(l => l.trim()));
 }
 
-function parseBlock(lines) {
+function parseBlock(lines, blockNumber, warnings) {
   const data = {
     title: '',
     _universeName: '',          // resolved to id by the app layer
@@ -100,7 +101,7 @@ function parseBlock(lines) {
     location: { realm: '', planet: '', region: '', place: '' },
     tags: [],
     characters: [],
-    attributes: [],
+    appearance: { icon: '', background: '' },
     subEvents: [],
     sortOrder: { custom: 0 }
   };
@@ -115,7 +116,7 @@ function parseBlock(lines) {
     const value = line.slice(idx + 1).trim();
     if (!key) continue;
     any = true;
-    applyField(data, key, value);
+    applyField(data, key, value, blockNumber, warnings);
   }
 
   if (!any) return null;
@@ -133,7 +134,7 @@ function stripComment(line) {
   return line.replace(/\s+#\s.*$/, '');
 }
 
-function applyField(data, key, value) {
+function applyField(data, key, value, blockNumber, warnings) {
   switch (key) {
     case 'title': data.title = value; break;
     case 'universe': data._universeName = value; break;
@@ -178,9 +179,13 @@ function applyField(data, key, value) {
       if (seg) data.subEvents.push(seg);
       break;
     }
+    case 'icon': data.appearance.icon = value; break;
+    case 'background': data.appearance.background = value; break;
     default:
-      // Unknown key → clue attribute.
-      data.attributes.push({ key, value });
+      // Unrecognized key → skip it and record a warning. Clues (moon, weather,
+      // ...) belong in the free-form AI description, not as event fields
+      // (Req 3.4, 4.3). The parser produces no `attributes` field anymore.
+      warnings.push(`Block ${blockNumber}: unknown key "${key}" — skipped (clues belong in the AI description)`);
   }
 }
 

@@ -1,6 +1,6 @@
 // app.js — Main application controller for Chronizo
 
-import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV, importFromCSV } from './storage.js';
+import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV } from './storage.js';
 import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createSubEvent } from './events.js';
 import { createConnection } from './storage.js';
 import { TimelineRenderer } from './timeline.js';
@@ -98,20 +98,6 @@ document.getElementById('btn-save').addEventListener('click', () => saveToFile(p
 
 // CSV
 document.getElementById('btn-csv-export').addEventListener('click', () => exportToCSV(project));
-document.getElementById('btn-csv-import').addEventListener('click', async () => {
-  try {
-    const imported = await importFromCSV();
-    if (confirm(`Import ${imported.events.length} events as new project, or merge into current?\n\nOK = Replace current\nCancel = Merge into current`)) {
-      project = imported;
-    } else {
-      mergeProjects(project, imported);
-    }
-    editingEventId = null;
-    refreshAll();
-  } catch (err) {
-    if (err.message !== 'No file selected') alert('Error: ' + err.message);
-  }
-});
 
 // ===== Quick Add (text formula) =====
 const quickaddDialog = document.getElementById('quickadd-dialog');
@@ -217,23 +203,6 @@ document.getElementById('project-name').addEventListener('click', () => {
   if (name) { project.meta.name = name; refreshAll(); }
 });
 
-// ===== Example loaders =====
-document.getElementById('btn-example').addEventListener('click', () => loadExample('data/example-mcu.chronizo.json', 'MCU'));
-document.getElementById('btn-example-history').addEventListener('click', () => loadExample('data/world-history.chronizo.json', 'World History'));
-
-async function loadExample(path, name) {
-  if (!confirm(`Load ${name} example? Current project will be replaced.`)) return;
-  try {
-    const resp = await fetch(path);
-    project = await resp.json();
-    if (!project.connections) project.connections = [];
-    editingEventId = null;
-    refreshAll();
-  } catch (err) {
-    alert('Could not load example: ' + err.message);
-  }
-}
-
 // ===== Connection mode =====
 document.getElementById('btn-connect').addEventListener('click', () => {
   connectMode = true;
@@ -259,6 +228,20 @@ function getLocField(ev, field) {
   if (!ev?.location) return '';
   if (typeof ev.location === 'string') return field === 'place' ? ev.location : '';
   return ev.location[field] || '';
+}
+
+// A native <input type="color"> always holds a value; treat the default
+// sentinel as "no background set" so an untouched picker doesn't persist an
+// accidental color (Req 9.6 — empty appearance renders the default look).
+const DEFAULT_BG_COLOR = '#000000';
+
+function setBgColor(inputId, background) {
+  document.getElementById(inputId).value = background || DEFAULT_BG_COLOR;
+}
+
+function readBgColor(inputId) {
+  const v = document.getElementById(inputId).value;
+  return v && v.toLowerCase() !== DEFAULT_BG_COLOR ? v : '';
 }
 
 function openEventPanel(event) {
@@ -291,11 +274,13 @@ function openEventPanel(event) {
   document.getElementById('ev-loc-place').value = getLocField(event, 'place');
   document.getElementById('ev-sort-order').value = event?.sortOrder?.custom || 0;
 
+  // Appearance — optional icon + background (Req 9.1). Empty background leaves
+  // the picker at its default sentinel so it isn't persisted as a set color.
+  document.getElementById('ev-icon').value = event?.appearance?.icon || '';
+  setBgColor('ev-bg', event?.appearance?.background);
+
   // Sub-events
   renderSubEvents(event?.subEvents || []);
-
-  // Clues / attributes
-  renderAttributes(event?.attributes || []);
 
   requestAnimationFrame(() => {
     document.getElementById('ev-universe').value = event?.universe || 'main';
@@ -341,7 +326,10 @@ form.addEventListener('submit', (e) => {
     characters: document.getElementById('ev-characters').value.split(',').map(s => s.trim()).filter(Boolean),
     sortOrder: { custom: parseInt(document.getElementById('ev-sort-order').value) || 0 },
     subEvents: collectSubEvents(),
-    attributes: collectAttributes()
+    appearance: {
+      icon: document.getElementById('ev-icon').value.trim(),
+      background: readBgColor('ev-bg')
+    }
   };
 
   if (!data.title) return;
@@ -444,46 +432,6 @@ function collectSubEvents() {
   })).filter(s => s.label || s.date.approximate);
 }
 
-// ===== Attributes (clues used to infer the date) =====
-// Build a single clue row. Values are assigned via the .value property (not
-// interpolated into innerHTML) so that quotes or special characters in a clue
-// cannot break the markup.
-function makeAttributeRow(key = '', value = '') {
-  const row = document.createElement('div');
-  row.className = 'attr-row';
-  row.innerHTML = `
-    <input type="text" class="attr-key" placeholder="moon">
-    <input type="text" class="attr-value" placeholder="full">
-    <button type="button" class="attr-del">✕</button>
-  `;
-  row.querySelector('.attr-key').value = key;
-  row.querySelector('.attr-value').value = value;
-  row.querySelector('.attr-del').addEventListener('click', () => row.remove());
-  return row;
-}
-
-function renderAttributes(attrs) {
-  const list = document.getElementById('attributes-list');
-  list.innerHTML = '';
-  (attrs || []).forEach(attr => {
-    list.appendChild(makeAttributeRow(attr.key || '', attr.value || ''));
-  });
-}
-
-document.getElementById('btn-add-attribute').addEventListener('click', () => {
-  document.getElementById('attributes-list').appendChild(makeAttributeRow());
-});
-
-// Collect clue rows into [{key, value}], skipping pairs whose key is empty or
-// whitespace-only (Req 9.2 / Property 12). Values are preserved verbatim.
-function collectAttributes() {
-  const rows = document.querySelectorAll('#attributes-list .attr-row');
-  return [...rows].map(row => ({
-    key: row.querySelector('.attr-key').value.trim(),
-    value: row.querySelector('.attr-value').value
-  })).filter(a => a.key);
-}
-
 // ===== Canvas event callbacks =====
 renderer.onEventClick = (event) => {
   if (connectMode) {
@@ -575,8 +523,16 @@ document.getElementById('btn-add-uni').addEventListener('click', () => {
   const color = document.getElementById('uni-color').value;
   const parentId = document.getElementById('uni-parent').value || null;
   if (!name) return;
-  addUniverse(project, name, color, parentId);
+  // addUniverse(project, name, color, parentId) doesn't take appearance, so set
+  // it on the returned universe (createUniverse already seeds appearance — 1.2).
+  const uni = addUniverse(project, name, color, parentId);
+  uni.appearance = {
+    icon: document.getElementById('uni-icon').value.trim(),
+    background: readBgColor('uni-bg')
+  };
   document.getElementById('uni-name').value = '';
+  document.getElementById('uni-icon').value = '';
+  setBgColor('uni-bg', '');
   renderUniverseList();
   populateParentSelect();
   refreshAll();

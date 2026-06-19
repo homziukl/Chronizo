@@ -44,7 +44,11 @@
       "sortOrder": { "custom": 2 },
       "location": { "realm": "", "planet": "Earth", "region": "North America", "place": "Brooklyn, NY" },
       "media": { "type": "film", "title": "Captain America: The First Avenger", "episode": "" },
-      "subEvents": []
+      "subEvents": [],
+      "attributes": [
+        { "key": "newspaper", "value": "WWII front-page headlines" },
+        { "key": "season", "value": "summer — light uniforms" }
+      ]
     },
     {
       "id": "ev-cap-ice",
@@ -60,6 +64,11 @@
       "sortOrder": { "custom": 3 },
       "location": { "realm": "", "planet": "Earth", "region": "Arctic", "place": "" },
       "media": { "type": "film", "title": "Captain America: The First Avenger", "episode": "" },
+      "characters": ["Steve Rogers", "Red Skull"],
+      "attributes": [
+        { "key": "weather", "value": "blizzard" },
+        { "key": "moon", "value": "new" }
+      ],
       "subEvents": []
     },
     {
@@ -76,6 +85,11 @@
       "sortOrder": { "custom": 5 },
       "location": { "realm": "", "planet": "Earth", "region": "North America", "place": "New York City" },
       "media": { "type": "film", "title": "The Avengers", "episode": "" },
+      "characters": ["Iron Man", "Captain America", "Thor", "Hulk", "Black Widow", "Hawkeye", "Loki"],
+      "attributes": [
+        { "key": "weather", "value": "clear spring day" },
+        { "key": "real-landmark", "value": "Stark Tower over Grand Central, NYC" }
+      ],
       "subEvents": []
     },
     {

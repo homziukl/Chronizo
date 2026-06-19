@@ -2,102 +2,123 @@
 //
 // Exports:
 //   AI_PROMPT       — a ready-to-copy instruction prompt for ANY AI (ChatGPT,
-//                     Claude, Gemini, ...) describing how Chronizo Quick Add
-//                     works and how to produce a valid formula. Copy → paste
+//                     Claude, Gemini, ...). It tells the AI to take a free-form
+//                     description, infer the in-universe date from its clues,
+//                     and return a valid Chronizo event block. Copy → paste
 //                     into the AI, then paste its output back into Quick Add.
 //   EXAMPLE_FORMULA — a short, parseable example inserted by "Show format" so
 //                     the user can edit it directly in the Quick Add box.
 //
-// Keep this in sync with README.md → "Składnia formuły Quick Add".
+// Keep this in sync with README.md → "Quick Add formula syntax".
 
-// A complete, self-contained example formula (recognized keys + unrecognized
-// clues + segments). Used both inside AI_PROMPT and by the "Show format" button.
+// A complete, self-contained example formula: recognized keys + an appearance
+// example (icon/background) + segments. Used both inside AI_PROMPT and by the
+// "Show format" button. It contains NO clue lines (e.g. `moon: full`): clues
+// belong in the free-form description fed to the AI, never in the event block.
 export const EXAMPLE_FORMULA = [
-  'title: Bitwa o Twierdzę',
-  'universe: Kroniki Pogranicza',
-  'media: Kroniki Pogranicza S02E07',
+  'title: Siege of the Eastern Keep',
+  'universe: Borderland Chronicles',
+  'media: Borderland Chronicles S02E07',
   'date: 1453-06-12',
   'season: summer',
-  'characters: Kapitan Mara, Zwiadowca Iven',
+  'characters: Captain Mara, Scout Iven',
   'evidence: shown',
-  'source: Kroniki Pogranicza, odcinek 2x07',
-  'reasoning: Datę wywnioskowano z pełni Księżyca i letniej pory przez AI',
-  'tags: bitwa, oblężenie',
-  'place: Twierdza Wschodnia',
-  'moon: full',
-  'weather: storm',
-  'seg: flashback @1448 "Dzieciństwo Mary w wiosce"',
-  'seg: postcredits "Sygnał z północnej wieży"',
+  'source: Borderland Chronicles, episode 2x07',
+  'reasoning: Date inferred by the AI from a full moon and high summer',
+  'tags: battle, siege',
+  'place: Eastern Keep',
+  'icon: 🏰',
+  'background: #2b2f4a',
+  'seg: flashback @1448 "Mara\'s childhood in the village"',
+  'seg: postcredits "A signal from the northern tower"',
   '---',
-  'title: Powrót przez Wyrwę',
-  'universe: Kroniki Pogranicza',
-  'media: Kroniki Pogranicza: Wyrwa',
+  'title: Return through the Rift',
+  'universe: Borderland Chronicles',
+  'media: Borderland Chronicles: The Rift',
   'date: ~1470',
   'release: 2024-03-15',
-  'characters: Kapitan Mara, Mistrz Run',
-  'reasoning: Brak dokładnej daty fabularnej — pozycja wg daty wydania',
-  'seg: timetravel @1453 new "Skok do bitwy o Twierdzę"',
+  'characters: Captain Mara, Rune Master',
+  'reasoning: No exact in-universe date — positioned by release date',
+  'icon: 🌀',
+  'seg: timetravel @1453 new "Jump back to the siege"',
 ].join('\n');
 
-// Ready-to-copy instruction prompt for any AI. Explains what Chronizo is, the
-// full Quick Add syntax, the "unrecognized key = clue" rule (path A), the
-// segment syntax, and embeds the complete EXAMPLE_FORMULA so the AI sees a
-// concrete target. Paste this into ChatGPT/Claude/Gemini, describe your
-// chronology, then paste the AI's output back into the Quick Add box.
-export const AI_PROMPT = `Wygeneruj formułę tekstową dla aplikacji Chronizo (przeglądarkowy builder osi czasu).
-Trzymaj się DOKŁADNIE poniższych reguł składni i nie dodawaj nic poza formułą.
+// Ready-to-copy instruction prompt for any AI. It explains what Chronizo is,
+// the Path A workflow (the AI infers the date from clues in a free-form
+// description and returns a ready-to-paste block), the full Quick Add syntax,
+// the "unrecognized key = skipped" rule, the segment syntax, and embeds the
+// complete EXAMPLE_FORMULA so the AI has a concrete target. Paste this into
+// ChatGPT/Claude/Gemini, add your free-form description, then paste the AI's
+// output back into the Quick Add box.
+export const AI_PROMPT = `You generate a text formula for Chronizo (a browser-based timeline builder).
+Follow the syntax rules below EXACTLY and output nothing but the formula.
 
-CO ROBI CHRONIZO
-- Buduje chronologię dowolnych treści (seriale, filmy, gry, książki, komiksy,
-  wydarzenia historyczne). Każdy event to jedno wydarzenie na osi czasu,
-  przypisane do "uniwersum" (toru), który może obejmować kilka mediów.
+WHAT CHRONIZO DOES
+- It builds a chronology of any content (TV series, films, games, books,
+  comics, historical events). Each event is one point on the timeline,
+  assigned to a "universe" (a track) that may span several media.
 
-STRUKTURA
-- Jeden event = blok linii w formacie \`klucz: wartość\`.
-- Wiele eventów oddzielaj linią zawierającą WYŁĄCZNIE separator: \`---\` albo \`===\`
-  (co najmniej trzy znaki).
-- Każdy event MUSI mieć klucz \`title:\` — blok bez tytułu jest pomijany.
-- Komentarz na końcu linii: spacja \`#\` spacja, treść (np. \`date: 1267  # uwaga\`).
-  Hash bez spacji po obu stronach NIE jest komentarzem (\`#127\`, \`path#anchor\` przetrwają).
+YOUR JOB (the AI infers the date)
+- The user gives you a FREE-FORM description in natural language that contains
+  clues, for example: "watched episode 3; they said it takes place in 985 BCE;
+  it was night, a full moon, the sky looked northern-hemisphere; a real solar
+  eclipse was mentioned".
+- YOU infer the in-universe date from those clues (moon phase, weather, real
+  historical events, dialogue, ...) and write the result into the \`date:\` field.
+- Chronizo does NOT compute moon phases, weather or anything offline. It only
+  parses the structured block you return.
 
-ROZPOZNANE KLUCZE (trafiają do pól eventu)
-- title: tytuł eventu (WYMAGANY).
-- universe: nazwa uniwersum/toru. Pominięty + podany \`media\` -> nazwa wyprowadzona
-  automatycznie z tytułu medium (oznaczenie odcinka i podtytuł po dwukropku odcinane).
-- media: tytuł medium, np. \`The Witcher S01E05\`.
-- episode: jawne oznaczenie odcinka.
-- date: data fabularna. ISO \`YYYY-MM-DD\` -> data DOKLADNA; inna wartosc
-  (\`2012\`, \`~1267\`, \`Before the war\`) -> data PRZYBLIZONA.
-- from / to: zakres dat.
-- season: spring/summer/autumn(fall)/winter.
-- era: nazwa ery (tekst).
-- release: data wydania (fallback pozycjonowania, gdy brak daty fabularnej).
+STRUCTURE
+- One event = a block of \`key: value\` lines.
+- Separate multiple events with a line containing ONLY a separator: \`---\` or
+  \`===\` (at least three characters).
+- Every event MUST have a \`title:\` key — a block without a title is skipped.
+- Trailing comment: space \`#\` space, then text (e.g. \`date: 1267  # note\`).
+  A hash without spaces on both sides is NOT a comment (\`#127\`, \`path#anchor\`
+  survive).
+
+RECOGNIZED KEYS (these map to event fields)
+- title: event title (REQUIRED).
+- universe: universe/track name. If omitted but \`media\` is given, the name is
+  derived automatically from the media title (episode marker and any subtitle
+  after a colon are stripped).
+- media: media title, e.g. \`The Witcher S01E05\`.
+- date: in-universe date. ISO \`YYYY-MM-DD\` -> stored as an EXACT date; any other
+  value (\`2012\`, \`~1267\`, \`Before the war\`) -> stored as an APPROXIMATE date.
+- season: spring | summer | autumn (fall) | winter.
+- era: era name (free text).
+- from / to: a date range.
+- release: release/air date (used to position the event when there is no
+  in-universe date).
 - evidence: shown | described | mentioned | implied | speculated.
-- source: zrodlo informacji.
-- reasoning: slad wnioskowania — dlaczego ta data/pozycja.
-- tags: lista po przecinku.
-- characters: lista postaci po przecinku.
-- realm / planet / region / place: pola lokalizacji (\`location\` to alias \`place\`).
-- sort: liczba calkowita — wlasna kolejnosc.
-- seg: segment (podscena) eventu — patrz nizej.
+- source: where the information comes from.
+- reasoning: a trace of your inference — why this date/position.
+- tags: comma-separated list.
+- characters: comma-separated list of character names.
+- realm / planet / region / place: location fields (\`location\` is an alias of
+  \`place\`).
+- sort: an integer — manual ordering.
+- seg: a segment (sub-scene) of the event — see below.
+- icon: an emoji or short symbol shown next to the title (appearance).
+- background: a CSS color (e.g. \`#2b2f4a\`) for the event block (appearance).
 
-KLUCZE NIEROZPOZNANE = WSKAZOWKI (clues)  <- regula kluczowa
-- Kazdy klucz spoza listy powyzej (np. \`moon: full\`, \`weather: storm\`) NIE jest
-  bledem — zostaje zapisany jako Wskazowka { klucz, wartosc } w polu attributes.
-- Wskazowki to przeslanki do USTALENIA daty. Sciezka A: to TY (AI) wnioskujesz date
-  z tych wskazowek i wpisujesz ja w \`date:\`. Chronizo NIE liczy faz Ksiezyca,
-  pogody ani niczego offline — tylko przechowuje wskazowki przy evencie.
+UNRECOGNIZED KEYS ARE SKIPPED  <- key rule
+- Any key that is NOT in the list above (e.g. \`moon: full\`, \`weather: storm\`)
+  is SKIPPED by Chronizo: it creates no field and produces a warning.
+- Clues like the moon phase or weather are INPUT for YOU to infer the date.
+  Keep them in the free-form description — do NOT emit them as keys in the
+  block. Put your conclusion in \`date:\` (and optionally in \`reasoning:\`).
 
-SEGMENTY (klucz \`seg\`)
-- Skladnia wartosci:  <typ> [@data] [new|same] "etykieta"
-- <typ> nalezy do { flashback, callback, postcredits, prologue, epilogue, timetravel }
-  (nierozpoznany typ -> flashback).
-- @data — data przyblizona segmentu (np. \`@1257\`).
-- new|same — tylko dla \`timetravel\`: \`new\` -> nowe uniwersum, inaczej to samo.
-- "etykieta" — opis segmentu w cudzyslowie.
-- Wiele segmentow = wiele linii \`seg:\` w tym samym bloku.
+SEGMENTS (key \`seg\`)
+- Value syntax:  <type> [@date] [new|same] "label"
+- <type> is one of { flashback, callback, postcredits, prologue, epilogue,
+  timetravel } (an unknown type falls back to flashback).
+- @date — the segment's approximate date (e.g. \`@1257\`).
+- new|same — only for \`timetravel\`: \`new\` -> a new universe, otherwise the same.
+- "label" — the segment description in quotes.
+- Multiple segments = multiple \`seg:\` lines in the same block.
 
-PRZYKLAD KOMPLETNEJ FORMULY (dwa eventy)
+COMPLETE EXAMPLE FORMULA (two events)
 ${EXAMPLE_FORMULA}
 
-Zwroc WYLACZNIE formule w powyzszym formacie, bez komentarza wstepnego.`;
+Return ONLY the formula in the format above, with no preamble.`;
