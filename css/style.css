@@ -369,6 +369,12 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
   box-shadow: 0 0 6px var(--glow-orange);
   width: 200px;
 }
+/* No-match state for search (Req 10.5) — flag the box red; the title attribute
+   (set in app.js) shows "No matches" on hover. */
+.search-input.no-match {
+  border-color: var(--accent-red);
+  box-shadow: 0 0 6px rgba(231, 76, 60, 0.4);
+}
 
 /* ===== Connection banner ===== */
 .banner {

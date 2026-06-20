@@ -21,6 +21,10 @@ renderer.resize();
 window.addEventListener('resize', () => renderer.resize());
 setInterval(() => saveToLocalStorage(project), 30000);
 
+// Persist the manual order right after a drag&drop reorder (Req 12.3). The
+// renderer has already mutated sortOrder.custom and repainted; we only save.
+renderer.onReorder = () => saveToLocalStorage(project);
+
 // ===== Helpers =====
 function refreshAll() {
   applyFilters();
@@ -65,13 +69,13 @@ function populateFilterUniverse() {
 
 // ===== Filtering =====
 function applyFilters() {
-  const search = document.getElementById('search-box').value.toLowerCase().trim();
+  // Search no longer hides events — it highlights a path (see the search-box
+  // handler → renderer.setSearchQuery). applyFilters now only narrows the
+  // visible set by universe/evidence (Req 10 decouples search from filtering).
   const uniFilter = document.getElementById('filter-universe').value;
   const eviFilter = document.getElementById('filter-evidence').value;
 
   const filtered = project.events.filter(ev => {
-    if (search && !ev.title.toLowerCase().includes(search) &&
-        !(ev.tags || []).some(t => t.toLowerCase().includes(search))) return false;
     if (uniFilter && ev.universe !== uniFilter) return false;
     if (eviFilter && ev.evidence !== eviFilter) return false;
     return true;
@@ -80,11 +84,39 @@ function applyFilters() {
   renderer.setFilteredEvents(filtered);
 }
 
-document.getElementById('search-box').addEventListener('input', applyFilters);
+// Search highlights matching characters/events/titles instead of filtering
+// (Req 10.1/10.3). Empty query clears the highlight; zero matches flags the box
+// and sets a "No matches" title (Req 10.5).
+const searchBox = document.getElementById('search-box');
+searchBox.addEventListener('input', () => {
+  const q = searchBox.value;
+  const count = renderer.setSearchQuery(q);
+  const noMatch = !!q.trim() && count === 0;
+  searchBox.classList.toggle('no-match', noMatch);
+  searchBox.title = noMatch ? 'No matches' : '';
+});
 document.getElementById('filter-universe').addEventListener('change', applyFilters);
 document.getElementById('filter-evidence').addEventListener('change', applyFilters);
 
-// ===== Top bar buttons =====
+// ===== Theme toggle (Req 13) =====
+// The canvas does not read CSS variables, so the renderer is told the theme
+// explicitly via setTheme(); the DOM UI follows body[data-theme].
+function applyTheme(theme) {
+  const t = theme === 'light' ? 'light' : 'dark';
+  document.body.dataset.theme = t;
+  renderer.setTheme(t);
+  try { localStorage.setItem('chronizo-theme', t); } catch { /* ignore */ }
+}
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const current = document.body.dataset.theme === 'light' ? 'light' : 'dark';
+  applyTheme(current === 'light' ? 'dark' : 'light');
+});
+
+// Restore the saved theme on startup (defaults to dark).
+applyTheme((() => {
+  try { return localStorage.getItem('chronizo-theme') || 'dark'; } catch { return 'dark'; }
+})());
 document.getElementById('btn-new').addEventListener('click', () => {
   if (!confirm('Create new project? Unsaved changes will be lost.')) return;
   const name = prompt('Project name:', 'My Timeline');
@@ -113,7 +145,7 @@ function resolveUniverseByName(name) {
 }
 
 function addEventsFromFormula(text) {
-  const { events, errors } = parseFormula(text);
+  const { events, errors, warnings } = parseFormula(text);
   events.forEach(data => {
     data.universe = resolveUniverseByName(data._universeName);
     data.speculativeUniverse = data.speculativeUniverseName
@@ -122,7 +154,7 @@ function addEventsFromFormula(text) {
     delete data.speculativeUniverseName;
     addEvent(project, data);
   });
-  return { added: events.length, errors };
+  return { added: events.length, errors, warnings: warnings || [] };
 }
 
 document.getElementById('btn-quick-add').addEventListener('click', () => {
@@ -154,16 +186,19 @@ document.getElementById('btn-quickadd-prompt').addEventListener('click', async (
 document.getElementById('btn-quickadd-parse').addEventListener('click', () => {
   const text = document.getElementById('quickadd-text').value;
   const feedback = document.getElementById('quickadd-feedback');
-  const { added, errors } = addEventsFromFormula(text);
+  const { added, errors, warnings } = addEventsFromFormula(text);
   if (added === 0 && errors.length) {
     feedback.style.color = '#e74c3c';
     feedback.textContent = '⚠ ' + errors.join(' | ');
     return;
   }
   refreshAll();
-  if (errors.length) {
+  // Surface both parse errors (non-fatal once some events were added) and
+  // skipped-key warnings (Req 3.4/3.8) so the user sees what was ignored.
+  const notes = [...errors, ...warnings];
+  if (notes.length) {
     feedback.style.color = '#f39c12';
-    feedback.textContent = `Added ${added} event(s). Warnings: ${errors.join(' | ')}`;
+    feedback.textContent = `Added ${added} event(s). ${notes.join(' | ')}`;
   } else {
     quickaddDialog.close();
   }
@@ -642,7 +677,24 @@ document.getElementById('btn-bulk-cancel').addEventListener('click', () => {
   document.getElementById('bulk-edit-dialog').close();
 });
 
+// ===== Theme (dark/light) — Req 13 =====
+// The canvas does not read CSS variables, so the renderer is told the theme
+// explicitly via setTheme(); the DOM follows via body[data-theme]. Choice is
+// persisted in localStorage and restored on startup.
+const THEME_KEY = 'chronizo-theme';
+function applyTheme(theme) {
+  const t = theme === 'light' ? 'light' : 'dark';
+  document.body.dataset.theme = t;
+  renderer.setTheme(t);
+}
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+});
+
 // ===== Init =====
+applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 updateProjectLabel();
 populateUniverseSelects();
 populateFilterUniverse();

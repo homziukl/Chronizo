@@ -2,7 +2,7 @@
 // Full feature set: branches, sub-wires, evidence opacity, date ranges,
 // sub-events, minimap, connect mode, filtering
 
-import { sortEvents, characterThreads } from './sorting.js';
+import { sortEvents, characterThreads, matchQuery } from './sorting.js';
 import { getTimeValue, getTimeEndValue, hasDateRange, getLocationKey,
          getLocationString, EVIDENCE_LEVELS, isPositionedByRelease, isUntimed,
          getAppearance } from './events.js';
@@ -20,6 +20,16 @@ export class TimelineRenderer {
     // a soft glow behind them in their universe color.
     this.labelGlow = false;
 
+    // Theme (Req 13) — 'dark' (default) or 'light'. The canvas does not read CSS
+    // variables, so the renderer keeps its own theme and is told explicitly via
+    // setTheme(); _palette() maps it to concrete colors.
+    this.theme = 'dark';
+    // Search highlight (Req 10) — when non-empty, matching blocks/threads are
+    // highlighted and the rest dimmed. Empty string = no highlight.
+    this.searchQuery = '';
+    this._matched = null;        // Set<eventId> of current matches (or null)
+    this._lastMatchCount = 0;    // returned by setSearchQuery for the UI
+
     this.offsetX = 100;
     this.offsetY = 0;
     this.zoom = 1;
@@ -36,8 +46,9 @@ export class TimelineRenderer {
     this.BRANCH_CURVE = 60;
     // Vertical step used to fan out events that collide at the same (x, y)
     // within a universe (same time slot + same location wire), so overlapping
-    // events stay individually readable. See _drawBranches de-overlap pass.
-    this.STACK_GAP = 18;
+    // events stay individually readable. Sized for event CARDS (~26px tall),
+    // not the legacy dots, so stacked cards keep a visible gap.
+    this.STACK_GAP = 36;
     // "Bez źródła czasu" (no time source) zone — untimed events (Req 5.3) are
     // laid out here, after the last real time slot, instead of colliding with
     // dated events at the axis start. Spacing is fixed so positions are a
@@ -55,6 +66,21 @@ export class TimelineRenderer {
   // Optional label glow toggle (Req 7.5). Mirrors the other setters: updates the
   // flag and re-renders. Default state is OFF (set in the constructor).
   setLabelGlow(on) { this.labelGlow = on; this.render(); }
+  // Theme switch (Req 13.6) — set the renderer theme and repaint immediately.
+  setTheme(t) { this.theme = (t === 'light' ? 'light' : 'dark'); this.render(); }
+  // Search highlight (Req 10) — set the query, repaint, and return how many
+  // events matched so the app can show a "No matches" message (Req 10.5).
+  setSearchQuery(q) { this.searchQuery = q || ''; this.render(); return this._lastMatchCount; }
+
+  // Theme palette (Req 13.2–13.4) — concrete colors per theme. Label/value text
+  // is pure black (#000) in light and white (#fff) in dark, with NO low-contrast
+  // greys. The canvas background and grid follow the theme too.
+  _palette() {
+    if (this.theme === 'light') {
+      return { bg: '#f1f1ec', text: '#000', grid: 'rgba(0,0,0,0.08)' };
+    }
+    return { bg: '#0a0a0f', text: '#fff', grid: 'rgba(42,42,58,0.3)' };
+  }
 
   resize() {
     const r = this.canvas.parentElement.getBoundingClientRect();
@@ -72,7 +98,8 @@ export class TimelineRenderer {
     const w = this.canvas.width / devicePixelRatio;
     const h = this.canvas.height / devicePixelRatio;
 
-    ctx.fillStyle = '#0a0a0f';
+    const pal = this._palette();
+    ctx.fillStyle = pal.bg;
     ctx.fillRect(0, 0, w, h);
     this._drawGrid(w, h);
 
@@ -82,6 +109,15 @@ export class TimelineRenderer {
 
     this.MAIN_Y = h / (2 * this.zoom);
     const events = this.filteredEvents || this.project.events;
+    // Search highlight set (Req 10) — compute once per render. Empty query →
+    // null (no highlight); otherwise the set of matching event ids.
+    if (this.searchQuery && this.searchQuery.trim()) {
+      this._matched = matchQuery(events, this.searchQuery);
+      this._lastMatchCount = this._matched.size;
+    } else {
+      this._matched = null;
+      this._lastMatchCount = 0;
+    }
     const layout = this._computeLayout(events);
     this.eventPositions = [];
 
@@ -90,15 +126,19 @@ export class TimelineRenderer {
     this._drawTimeMarkers(layout);
     this._drawUntimedZone(layout);
     this._drawBranches(layout);
+    // Resolve block-vs-block overlap (readability): event cards are far larger
+    // than the old dots, so co-located/near cards collide. Spread them
+    // vertically before drawing threads/blocks so everything uses the resolved
+    // positions. Deterministic (stable order), so re-renders are identical.
+    this._resolveBlockCollisions();
     this._drawDateRanges(layout);
     this._drawConnections();
     // Character threads (Linie_Postaci, Req 7.2/7.3/7.5) — drawn before the
     // event blocks so the connecting lines sit behind the cards.
     this._drawCharacterThreads();
-    // Label collision tracking — collect placed label rects
-    this._labelRects = [];
     this.eventPositions.forEach(ep => this._drawEventBlock(ep));
     this._drawSubEventMarkers(layout);
+    this._drawDragGhost();
 
     ctx.restore();
     this._drawLegend(layout);
@@ -281,19 +321,26 @@ export class TimelineRenderer {
   _drawTimeMarkers(layout) {
     const ctx = this.ctx;
     const y = this.MAIN_Y;
+    const pal = this._palette();
     layout.slots.forEach(slot => {
       ctx.strokeStyle = 'rgba(255,107,0,0.4)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(slot.x, y - 10); ctx.lineTo(slot.x, y + 10); ctx.stroke();
       if (slot.label) {
-        ctx.fillStyle = '#8a8778'; ctx.font = '9px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
+        ctx.save();
+        ctx.fillStyle = pal.text; ctx.globalAlpha = 0.75;
+        ctx.font = '9px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
         ctx.fillText(slot.label, slot.x, y + 24);
+        ctx.restore();
       }
     });
     for (let i = 1; i < layout.slots.length; i++) {
       const yrs = (layout.slots[i].time - layout.slots[i - 1].time) / (365.25 * 24 * 3600000);
       if (yrs > 50) {
-        ctx.fillStyle = '#4a4a5a'; ctx.font = '10px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
+        ctx.save();
+        ctx.fillStyle = pal.text; ctx.globalAlpha = 0.45;
+        ctx.font = '10px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
         ctx.fillText(`⟨ ${Math.round(yrs)}y ⟩`, (layout.slots[i - 1].x + layout.slots[i].x) / 2, this.MAIN_Y + 38);
+        ctx.restore();
       }
     }
   }
@@ -308,25 +355,26 @@ export class TimelineRenderer {
     const ctx = this.ctx;
     const y = this.MAIN_Y;
     const dividerX = zone.startX - this.UNTIMED_ZONE_GAP / 2;
+    const pal = this._palette();
 
     ctx.save();
     // Dashed vertical divider between the time axis and the untimed zone.
-    ctx.strokeStyle = '#6a6a78';
-    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = pal.text;
+    ctx.globalAlpha = 0.35;
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 6]);
     ctx.beginPath();
     ctx.moveTo(dividerX, y - 120);
     ctx.lineTo(dividerX, y + 120);
     ctx.stroke();
-    // Zone label, greyed-out to match the "no time source" marker styling.
+    // Zone label.
     ctx.setLineDash([]);
     ctx.globalAlpha = 0.7;
-    ctx.fillStyle = '#8a8a98';
+    ctx.fillStyle = pal.text;
     ctx.font = '10px "Share Tech Mono",monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('⌀ Bez źródła czasu', zone.startX - 16, y - 130);
+    ctx.fillText('⌀ No time source', zone.startX - 16, y - 130);
     ctx.restore();
   }
 
@@ -504,13 +552,16 @@ export class TimelineRenderer {
     ctx.lineTo(ep.x, ep.y);
     ctx.stroke();
 
-    // Label on the axis
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 0.6;
-    ctx.font = '8px "Share Tech Mono",monospace';
-    ctx.textAlign = 'center';
-    const typeIcons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕' };
-    ctx.fillText(`${typeIcons[sub.type] || ''} ${sub.label || sub.date.approximate}`, subX, axisY - 8);
+    // Label on the axis — only when the parent event is hovered, to avoid
+    // piling sub-event text on top of the now-large event cards (readability).
+    if (this.hoveredEvent === ep.id) {
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.6;
+      ctx.font = '8px "Share Tech Mono",monospace';
+      ctx.textAlign = 'center';
+      const typeIcons = { flashback: '⏪', callback: '🔗', postcredits: '🎬', prologue: '📖', epilogue: '📕' };
+      ctx.fillText(`${typeIcons[sub.type] || ''} ${sub.label || sub.date.approximate}`, subX, axisY - 8);
+    }
 
     ctx.restore();
   }
@@ -616,12 +667,14 @@ export class TimelineRenderer {
 
     // === Label ===
     ctx.shadowBlur = 0;
-    ctx.globalAlpha = 0.8;
-    ctx.font = '9px "Share Tech Mono",monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = ttColor;
-    const icon = isNewUniverse ? '🌀' : '⏳';
-    ctx.fillText(`${icon} ${sub.label || 'Time Travel'}`, subX, axisY - 14);
+    if (this.hoveredEvent === ep.id) {
+      ctx.globalAlpha = 0.8;
+      ctx.font = '9px "Share Tech Mono",monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = ttColor;
+      const icon = isNewUniverse ? '🌀' : '⏳';
+      ctx.fillText(`${icon} ${sub.label || 'Time Travel'}`, subX, axisY - 14);
+    }
 
     // === Source marker: small hourglass icon at parent event ===
     ctx.globalAlpha = 0.6;
@@ -686,21 +739,28 @@ export class TimelineRenderer {
     const events = this.filteredEvents || this.project.events;
     const threads = characterThreads(events, this.sortMode);
     const posById = new Map(this.eventPositions.map(ep => [ep.id, ep]));
+    // Search query for thread highlighting (Req 10.3): a thread matches when the
+    // character name contains the query OR any of its events matched.
+    const q = (this.searchQuery && this.searchQuery.trim())
+      ? this.searchQuery.trim().toLowerCase() : null;
 
     threads.forEach((ids, name) => {
       const pts = ids.map(id => posById.get(id)).filter(Boolean);
       if (pts.length < 2) return; // single appearance → no line (Req 7.5)
+      const isMatch = !q || name.toLowerCase().includes(q)
+        || (this._matched && ids.some(id => this._matched.has(id)));
+      const dim = q && !isMatch ? 0.25 : 1;
       const color = this._characterColor(name);
       ctx.save();
       ctx.strokeStyle = color;
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.45 * dim;
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       ctx.beginPath();
       pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
       ctx.stroke();
       // Name label at the first occurrence so the thread is identifiable.
-      ctx.globalAlpha = 0.85;
+      ctx.globalAlpha = 0.85 * dim;
       ctx.fillStyle = color;
       ctx.font = '9px "Share Tech Mono",monospace';
       ctx.textAlign = 'left';
@@ -739,6 +799,56 @@ export class TimelineRenderer {
     return isHovered ? '#fff' : '#e0ddd4';
   }
 
+  // ===== BLOCK COLLISION RESOLUTION =====
+  // Event cards are much wider than the old dots, so cards that are close in X
+  // overlap and become unreadable. This pass measures each card and pushes
+  // overlapping cards vertically (alternating down/up around their base Y) until
+  // they no longer collide. Mutates ep.y so threads, date ranges and hit-testing
+  // all use the resolved positions. Deterministic: processes cards in a stable
+  // (x, y, id) order, so the same state always yields the same layout.
+  _resolveBlockCollisions() {
+    if (!this.eventPositions || this.eventPositions.length === 0) return;
+    const ctx = this.ctx;
+    const GAP_X = 10, GAP_Y = 8, STEP = 10, MAX_TRIES = 240;
+
+    const boxes = this.eventPositions.map(ep => {
+      const ev = ep.event;
+      const app = getAppearance(ev);
+      const maxLen = this.zoom > 0.6 ? 22 : (this.zoom > 0.3 ? 14 : 8);
+      const title = ev.title || '(untitled)';
+      const label = title.length > maxLen ? title.slice(0, maxLen - 1) + '…' : title;
+      ctx.font = 'bold 10px "Share Tech Mono",monospace';
+      const text = (app.icon ? app.icon + ' ' : '') + label;
+      const w = ctx.measureText(text).width + 16; // padX*2
+      return { ep, w, h: 20 };
+    });
+
+    // Stable processing order.
+    boxes.sort((a, b) =>
+      (a.ep.x - b.ep.x) || (a.ep.y - b.ep.y) ||
+      (a.ep.id < b.ep.id ? -1 : a.ep.id > b.ep.id ? 1 : 0));
+
+    const placed = []; // { cx, cy, w, h }
+    const hits = (cx, cy, w, h) => placed.some(p =>
+      (cx - w / 2 - GAP_X) < (p.cx + p.w / 2) &&
+      (cx + w / 2 + GAP_X) > (p.cx - p.w / 2) &&
+      (cy - h / 2 - GAP_Y) < (p.cy + p.h / 2) &&
+      (cy + h / 2 + GAP_Y) > (p.cy - p.h / 2));
+
+    boxes.forEach(b => {
+      const baseY = b.ep.y;
+      let cy = baseY;
+      let tries = 0;
+      while (tries < MAX_TRIES && hits(b.ep.x, cy, b.w, b.h)) {
+        tries++;
+        const k = Math.ceil(tries / 2);
+        cy = baseY + (tries % 2 === 1 ? 1 : -1) * k * STEP;
+      }
+      b.ep.y = cy;
+      placed.push({ cx: b.ep.x, cy, w: b.w, h: b.h });
+    });
+  }
+
   // ===== EVENT BLOCKS (cards) =====
   // Renders an event as a card/block with its title (Req 7.1), an optional icon
   // next to the title and an optional background, both from appearance
@@ -751,10 +861,14 @@ export class TimelineRenderer {
     const ev = ep.event;
     const isHovered = this.hoveredEvent === ep.id;
     const isSelected = this._selectedIds?.has(ep.id);
-    const alpha = ep.opacity || 1;
+    let alpha = ep.opacity || 1;
+    // Search dimming (Req 10.3): with an active query, non-matching blocks are
+    // dimmed so the matching path stands out; matching blocks keep full alpha.
+    const isMatch = !this._matched || this._matched.has(ep.id);
+    if (!isMatch) alpha *= 0.2;
     const app = getAppearance(ev);
 
-    const maxLen = this.zoom > 0.6 ? 22 : (this.zoom > 0.3 ? 14 : 8);
+    const maxLen = this.zoom > 0.6 ? 16 : (this.zoom > 0.3 ? 11 : 7);
     const title = ev.title || '(untitled)';
     const label = title.length > maxLen ? title.slice(0, maxLen - 1) + '…' : title;
     const fontSize = isHovered ? 11 : 10;
@@ -770,15 +884,26 @@ export class TimelineRenderer {
     ctx.save();
     if (this.connectMode) { ctx.shadowColor = '#a855f7'; ctx.shadowBlur = 12; }
     else { ctx.shadowColor = ep.color; ctx.shadowBlur = isHovered ? 16 : 6; }
-    // Card background — appearance.background overrides the universe-color tint.
-    const bg = app.background || ep.color;
-    ctx.globalAlpha = alpha * (app.background ? 0.92 : 0.22);
-    this._roundRect(bx, by, bw, bh, 5);
-    ctx.fillStyle = bg; ctx.fill();
-    // Border in the universe color (white when selected).
-    ctx.shadowBlur = 0;
+    // Card background — OPAQUE base so the card occludes threads/labels/other
+    // cards behind it (readability), then a universe-color tint or the custom
+    // appearance.background on top, then the border.
+    const pal = this._palette();
     ctx.globalAlpha = alpha;
-    ctx.lineWidth = isSelected ? 2 : 1;
+    this._roundRect(bx, by, bw, bh, 5);
+    ctx.fillStyle = pal.bg; ctx.fill();
+    ctx.shadowBlur = 0;
+    if (app.background) {
+      ctx.globalAlpha = alpha * 0.9;
+      this._roundRect(bx, by, bw, bh, 5);
+      ctx.fillStyle = app.background; ctx.fill();
+    } else {
+      ctx.globalAlpha = alpha * 0.32;
+      this._roundRect(bx, by, bw, bh, 5);
+      ctx.fillStyle = ep.color; ctx.fill();
+    }
+    // Border in the universe color (white when selected).
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = isSelected ? 2 : 1.25;
     ctx.strokeStyle = isSelected ? '#fff' : ep.color;
     if (ep.dash && ep.dash.length) ctx.setLineDash(ep.dash);
     this._roundRect(bx, by, bw, bh, 5);
@@ -1114,7 +1239,7 @@ export class TimelineRenderer {
   // ===== GRID =====
   _drawGrid(w, h) {
     const ctx = this.ctx;
-    ctx.strokeStyle = 'rgba(42,42,58,0.3)'; ctx.lineWidth = 0.5;
+    ctx.strokeStyle = this._palette().grid; ctx.lineWidth = 0.5;
     const step = 50 * this.zoom;
     const ox = this.offsetX % step, oy = this.offsetY % step;
     for (let x = ox; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
@@ -1124,12 +1249,13 @@ export class TimelineRenderer {
   // ===== LEGEND =====
   _drawLegend(layout) {
     const ctx = this.ctx;
+    const pal = this._palette();
     let ly = 16;
     ctx.font = '10px "Orbitron",sans-serif';
     layout.universes.forEach(uni => {
       const p = uni.parentUniverse ? layout.universes.find(u => u.id === uni.parentUniverse) : null;
       ctx.fillStyle = uni.color; ctx.fillRect(10, ly - 6, 8, 8);
-      ctx.fillStyle = '#e0ddd4'; ctx.textAlign = 'left';
+      ctx.fillStyle = pal.text; ctx.textAlign = 'left';
       ctx.fillText(uni.name + (p ? ` ← ${p.name}` : ''), 24, ly + 1);
       ly += 18;
     });
@@ -1150,17 +1276,67 @@ export class TimelineRenderer {
 
   // ===== INTERACTION =====
   _setupInteraction() {
-    let isDragging = false, lastX = 0, lastY = 0;
+    let isPanning = false, lastX = 0, lastY = 0;
     this._selectedIds = new Set();
+    this._dragState = null;   // active block drag (Req 12) or null
+    this._didDragBlock = false;
 
-    this.canvas.addEventListener('mousedown', (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+    this.canvas.addEventListener('mousedown', (e) => {
+      // In connect mode, never drag blocks — panning only, the click handler
+      // manages connection picking.
+      if (this.connectMode) { isPanning = true; lastX = e.clientX; lastY = e.clientY; return; }
+      const hit = this._hitTest(e);
+      if (hit) {
+        // Begin a potential block drag (Req 12.1). Promote to a real drag once
+        // the pointer moves past a small threshold (so plain clicks still open
+        // the event panel).
+        const r = this.canvas.getBoundingClientRect();
+        this._dragState = {
+          id: hit.id,
+          startClientX: e.clientX, startClientY: e.clientY,
+          curX: (e.clientX - r.left - this.offsetX) / this.zoom,
+          curY: (e.clientY - r.top - this.offsetY) / this.zoom,
+          moved: false
+        };
+      } else {
+        isPanning = true; lastX = e.clientX; lastY = e.clientY;
+      }
+    });
     window.addEventListener('mousemove', (e) => {
-      if (isDragging) {
+      if (this._dragState) {
+        const r = this.canvas.getBoundingClientRect();
+        this._dragState.curX = (e.clientX - r.left - this.offsetX) / this.zoom;
+        this._dragState.curY = (e.clientY - r.top - this.offsetY) / this.zoom;
+        if (Math.abs(e.clientX - this._dragState.startClientX) > 3 ||
+            Math.abs(e.clientY - this._dragState.startClientY) > 3) {
+          this._dragState.moved = true;   // visual feedback (Req 12.2)
+        }
+        this.render();
+        return;
+      }
+      if (isPanning) {
         this.offsetX += e.clientX - lastX; this.offsetY += e.clientY - lastY;
         lastX = e.clientX; lastY = e.clientY; this.render();
       } else this._handleHover(e);
     });
-    window.addEventListener('mouseup', () => { isDragging = false; });
+    window.addEventListener('mouseup', (e) => {
+      if (this._dragState) {
+        const ds = this._dragState;
+        this._dragState = null;
+        if (ds.moved) {
+          // Dropped inside the canvas → reorder; outside → revert (Req 12.4,
+          // no data change since we never mutated until here).
+          const r = this.canvas.getBoundingClientRect();
+          const inside = e.clientX >= r.left && e.clientX <= r.right &&
+                         e.clientY >= r.top && e.clientY <= r.bottom;
+          if (inside) this._applyReorder(ds.id, ds.curX);
+          this._didDragBlock = true;   // suppress the click that follows a drag
+          this.render();
+        }
+        return;
+      }
+      isPanning = false;
+    });
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -1174,6 +1350,9 @@ export class TimelineRenderer {
     }, { passive: false });
 
     this.canvas.addEventListener('click', (e) => {
+      // A click fires right after a drag's mouseup — ignore it so a drag does
+      // not also open the event panel (Req 12).
+      if (this._didDragBlock) { this._didDragBlock = false; return; }
       const hit = this._hitTest(e);
       if (e.ctrlKey || e.metaKey) {
         // Multi-select with Ctrl+click
@@ -1211,6 +1390,44 @@ export class TimelineRenderer {
 
   getSelectedIds() { return [...this._selectedIds]; }
   clearSelection() { this._selectedIds.clear(); this.render(); }
+
+  // Reorder after a drag&drop (Req 12.1/12.3). Rebuilds the left-to-right visual
+  // order, moves the dragged event to the slot matching its drop X, then
+  // renumbers sortOrder.custom for all events so the new order is deterministic
+  // and persists. onReorder lets the app save the project.
+  _applyReorder(draggedId, dropX) {
+    const ordered = this.eventPositions.slice().sort((a, b) => a.x - b.x);
+    // Insertion index = how many non-dragged blocks sit left of the drop point.
+    let idx = 0;
+    for (const ep of ordered) {
+      if (ep.id === draggedId) continue;
+      if (ep.x < dropX) idx++;
+    }
+    const ids = ordered.map(ep => ep.id).filter(id => id !== draggedId);
+    ids.splice(idx, 0, draggedId);
+    const byId = new Map(this.project.events.map(ev => [ev.id, ev]));
+    ids.forEach((id, i) => {
+      const ev = byId.get(id);
+      if (ev) ev.sortOrder = { ...(ev.sortOrder || {}), custom: i * 10 };
+    });
+    this.onReorder?.();
+  }
+
+  // Drag feedback (Req 12.2): a dashed drop-position indicator plus a ghost dot
+  // at the pointer while a block is being dragged.
+  _drawDragGhost() {
+    const ds = this._dragState;
+    if (!ds || !ds.moved) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = '#ff6b00'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(ds.curX, this.MAIN_Y - 140); ctx.lineTo(ds.curX, this.MAIN_Y + 140); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.6; ctx.fillStyle = '#ff6b00';
+    ctx.beginPath(); ctx.arc(ds.curX, ds.curY, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
 
   _handleHover(e) {
     const hit = this._hitTest(e);
@@ -1290,4 +1507,7 @@ export class TimelineRenderer {
   }
 
   onEventClick = null;
+  // Callback invoked after a drag&drop reorder so the app can persist the
+  // project (Req 12.3). Assigned by app.js.
+  onReorder = null;
 }
