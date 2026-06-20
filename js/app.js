@@ -583,8 +583,8 @@ function renderUniverseList() {
     div.className = 'uni-item';
     div.innerHTML = `
       <div class="uni-swatch" style="background:${uni.color}"></div>
-      <span>${uni.name}<em style="color:#8a8778;font-size:10px">${parentLabel}</em></span>
-      ${uni.isMain ? '<em style="color:#8a8778;font-size:11px">main</em>' : `<button data-id="${uni.id}" class="danger uni-del">✕</button>`}
+      <span>${uni.name}<em style="color:var(--text-dim);font-size:10px">${parentLabel}</em></span>
+      ${uni.isMain ? '<em style="color:var(--text-dim);font-size:11px">main</em>' : `<button data-id="${uni.id}" class="danger uni-del">✕</button>`}
     `;
     list.appendChild(div);
   });
