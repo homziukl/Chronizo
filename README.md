@@ -243,17 +243,18 @@ If GitHub Pages keeps an old broken module, this release cache-busts `app.js` an
 
 Quick Add is more forgiving: repeated `title:` lines start new events even without `---`, and `notes:` / `description:` are accepted as aliases for `reasoning:`. Explicit `---` separators are still recommended.
 
+### OET Quick Add paste tolerance
 
-## OET v3.7 Release Blocks
+Chronizo v3.6 accepts multi-event blocks from AI output more safely:
 
-Release dates belong to the media item, not to every small in-story event. In **Release Order** mode Chronizo now groups all events from the same media item and release date into one synthetic release block, for example:
+- separate events with `---`, or simply start the next event with another `title:` line;
+- `characters:` and `tags:` may use commas or semicolons;
+- `notes:`, `note:` and `description:` are accepted as aliases for `reasoning:`;
+- Markdown/code/writing-block fences are ignored;
+- common Polish aliases such as `tytuł:`, `uniwersum:`, `data:`, `emisja:`, `postacie:`, `tagi:` and `notatki:` are accepted.
 
-```txt
-Gotham Pilot S01E01 — 2014-09-22
-  - Wayne murders
-  - Gordon begins investigation
-  - Mario Pepper pursuit
-  - Oswald survives outside Gotham
-```
 
-Use **In-Universe Chronology** for the detailed story timeline. Use **Release Order** to see when episodes/issues/films were released.
+
+### GitHub Pages cache note
+
+Chronizo OET v3.8 cache-busts all internal modules. After uploading a new version to GitHub Pages, use Ctrl+F5 once.

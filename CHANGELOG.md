@@ -1,13 +1,10 @@
-# Chronizo OET v3.7 — Release Media Blocks
+# Changelog
 
-- Release Order view now groups micro-events by their media item/release date.
-- One release card is shown for e.g. `Gotham Pilot S01E01` on `2014-09-22` instead of repeating every in-story event on the release axis.
-- The release block tooltip lists the in-story events inside that episode/issue/film.
-- Clicking a release block opens a simple list instead of editing a synthetic event.
-- Character focus remains available in release mode by using the union of characters inside the media block.
-- Quick Add now normalizes extra spaces when extracting `S01E01` from `media:`.
-- Cache-busting updated to `v=3.7`.
-- Added `tests/smoke-release-blocks.mjs`.
+## Chronizo OET v3.8
+
+- Hotfix for GitHub Pages cache: every JS module import now has a version query (`?v=3.8`), not only `app.js`.
+- Release Order media blocks now support older/string media values and combine title + episode into a readable single block label.
+- This should make the new release-block view visible immediately after deploying and Ctrl+F5.
 
 # Chronizo OET v3.5
 
@@ -82,4 +79,15 @@ This release prepares Chronizo for larger Omniversal Event Tree projects without
 - Added the missing **Show Update format** button.
 - Made the Quick Update format listener defensive so the whole app will not die if that optional button is missing in a cached HTML version.
 - Added a DOM ID smoke test to catch this class of bug before packaging.
+## v3.6 — Quick Add Block Hardening
+
+- Hardened Quick Add for multi-event AI blocks.
+- Strips Markdown code fences and ChatGPT writing-block fences before parsing.
+- Accepts repeated `title:` as a new event even without `---` separators.
+- Accepts comma or semicolon separators in `characters`, `tags`, and update lists.
+- Accepts `notes`, `note`, and `description` as reasoning aliases.
+- Accepts common Polish key aliases such as `tytuł`, `uniwersum`, `data`, `emisja`, `postacie`, `tagi`, and `notatki`.
+- Accepts Markdown bullet key lines such as `- title: ...`.
+- Fixed AI prompt assembly so examples are inserted as full blocks, not character-by-character lines.
+- Added `smoke-oet-gotham-block` to test the exact OET/Gotham style paste workflow.
 

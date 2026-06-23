@@ -73,4 +73,16 @@ Result: OK.
 
 This test set verifies comma/semicolon list parsing and auto-repair of previously imported semicolon-separated character/tag strings.
 
-- smoke-release-blocks OK
+## v3.6 checks
+
+- `node --check js/*.js`
+- `node --check tests/*.mjs`
+- `node tests/smoke-oet-gotham-block.mjs`
+- Full smoke suite: app start, DOM IDs, render, sort, quick update, quick add tolerance, list separators, character focus.
+
+
+
+## v3.8 additional check
+
+- App module imports are cache-busted for GitHub Pages (`app.js`, `timeline.js`, `sorting.js`, `events.js`, `formula.js`, `storage.js`, `quick_update.js`, `template.js`).
+- Release block grouping supports `media` as object or string.

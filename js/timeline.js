@@ -2,10 +2,10 @@
 // Full feature set: branches, sub-wires, evidence opacity, date ranges,
 // sub-events, minimap, connect mode, filtering
 
-import { sortEvents, characterThreads, matchQuery } from './sorting.js';
+import { sortEvents, characterThreads, matchQuery } from './sorting.js?v=3.8';
 import { getTimeValue, getTimeEndValue, hasDateRange, getLocationKey,
          getLocationString, EVIDENCE_LEVELS, isPositionedByRelease, isUntimed,
-         getAppearance } from './events.js';
+         getAppearance } from './events.js?v=3.8';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -187,9 +187,10 @@ export class TimelineRenderer {
     const groups = new Map();
     for (const ev of events || []) {
       const release = String(ev.releaseDate || '').trim() || 'No release date';
-      const mediaTitle = this._cleanMediaLabel(ev.media?.title || ev.source || 'Unknown medium');
-      const episode = this._cleanMediaLabel(ev.media?.episode || '');
-      const mediaType = String(ev.media?.type || '').trim();
+      const mediaInfo = this._mediaInfoFromEvent(ev);
+      const mediaTitle = mediaInfo.title || ev.source || 'Unknown medium';
+      const episode = mediaInfo.episode || '';
+      const mediaType = mediaInfo.type || '';
       const universe = ev.universe || 'main';
       const key = [release, universe, mediaType, mediaTitle.toLowerCase(), episode.toLowerCase()].join('|');
       if (!groups.has(key)) groups.set(key, { release, universe, mediaType, mediaTitle, episode, events: [] });
@@ -242,6 +243,32 @@ export class TimelineRenderer {
 
   _cleanMediaLabel(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  _mediaInfoFromEvent(ev) {
+    const media = ev?.media;
+    let type = '';
+    let title = '';
+    let episode = '';
+
+    if (typeof media === 'string') {
+      title = media;
+    } else if (media && typeof media === 'object') {
+      type = String(media.type || '').trim();
+      title = media.title || media.name || media.label || '';
+      episode = media.episode || media.issue || media.part || '';
+    }
+
+    // Fallback for old Quick Add data and older saves: if media.title was split
+    // into title + episode, render them as one readable release block label.
+    title = this._cleanMediaLabel(title || ev?.source || 'Unknown medium');
+    episode = this._cleanMediaLabel(episode);
+    if (episode && !title.toLowerCase().includes(episode.toLowerCase())) {
+      title = this._cleanMediaLabel(`${title} ${episode}`);
+      episode = '';
+    }
+
+    return { type, title, episode };
   }
 
   _mediaIcon(type) {
