@@ -1,5 +1,14 @@
 # Chronizo OET — Changelog
 
+## OET v3.2 — App startup hotfix
+
+- Fixed the real cause of the dead top menu in v3/v3.1: `js/template.js` contained unescaped backticks inside the Quick Add AI prompt template string.
+- Because `app.js` imports `template.js`, that syntax error stopped the whole application before any button listeners were attached.
+- Escaped the backticks in the AI prompt.
+- Added `tests/smoke-app-start.mjs`, which imports the full app in a minimal DOM and verifies that **+ Event** and **Theme** listeners attach and can be clicked.
+- Re-ran all smoke tests.
+
+
 ## v3 — Foundation & Character Focus
 
 This release prepares Chronizo for larger Omniversal Event Tree projects without over-optimizing too early.

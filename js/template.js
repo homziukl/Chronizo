@@ -145,9 +145,9 @@ QUICK UPDATE / BATCH UPDATE
 - Chronizo also supports updating existing events from the same box.
 - Use this only when the user wants to correct existing events, not add new ones.
 - Every update block must contain one or more match rules and at least one changed field.
-- Match examples: `match: tag=TVA-arc`, `match: media=Loki S01E01`, `match: title=Opening scene`, `match: source=Action Comics #1`, `match: universe=DC Earth-2`.
+- Match examples: \`match: tag=TVA-arc\`, \`match: media=Loki S01E01\`, \`match: title=Opening scene\`, \`match: source=Action Comics #1\`, \`match: universe=DC Earth-2\`.
 - Matching rules inside one block are combined with AND.
-- Update examples: `date: 1938-04-18`, `evidence: mentioned`, `add_tags: date-confirmed`, `remove_tags: date-inferred`, `append_reasoning: Later issue confirms the date`.
+- Update examples: \`date: 1938-04-18\`, \`evidence: mentioned\`, \`add_tags: date-confirmed\`, \`remove_tags: date-inferred\`, \`append_reasoning: Later issue confirms the date\`.
 
 COMPLETE ADD EXAMPLE FORMULA (two events)
 ${EXAMPLE_FORMULA}

@@ -25,3 +25,21 @@ Manual browser checklist after publishing to GitHub Pages:
 6. Save JSON and reload page; focus/settings should persist.
 
 - `node tests/smoke-dom-ids.mjs` — verifies literal `getElementById(...)` references exist in `index.html`.
+
+
+Checked before packaging v3.2:
+
+```bash
+for f in js/*.js tests/*.mjs; do node --check "$f"; done
+node tests/smoke-render.mjs
+node tests/smoke-sort.mjs
+node tests/smoke-quick-update.mjs
+node tests/smoke-character-focus.mjs
+node tests/smoke-dom-ids.mjs
+node tests/smoke-app-start.mjs
+node -e "import('./js/template.js').then(() => console.log('template import ok'))"
+```
+
+Result: OK.
+
+The v3.2 smoke-app-start test specifically catches the class of bug where `app.js` dies during module import and the top menu becomes clickable-looking but inert.
