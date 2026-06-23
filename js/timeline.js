@@ -190,10 +190,17 @@ export class TimelineRenderer {
       const mediaInfo = this._mediaInfoFromEvent(ev);
       const mediaTitle = mediaInfo.title || ev.source || 'Unknown medium';
       const episode = mediaInfo.episode || '';
-      const mediaType = mediaInfo.type || '';
       const universe = ev.universe || 'main';
-      const key = [release, universe, mediaType, mediaTitle.toLowerCase(), episode.toLowerCase()].join('|');
-      if (!groups.has(key)) groups.set(key, { release, universe, mediaType, mediaTitle, episode, events: [] });
+
+      // OET release blocks are about the released medium/issue/episode, not
+      // about individual in-story event kinds. Earlier versions included
+      // media.type in the grouping key, which accidentally split one episode
+      // into several release blocks when Quick Add used `type: event`,
+      // `type: clue`, `type: background`, etc. For release order, all events
+      // with the same release date + universe + medium label belong together.
+      const canonicalMediaTitle = this._canonicalReleaseMediaTitle(mediaTitle, episode);
+      const key = [release, universe, canonicalMediaTitle.toLowerCase()].join('|');
+      if (!groups.has(key)) groups.set(key, { release, universe, mediaType: '', mediaTitle: canonicalMediaTitle, episode: '', events: [] });
       groups.get(key).events.push(ev);
     }
 
@@ -203,8 +210,9 @@ export class TimelineRenderer {
       const characters = this._unionList(g.events.flatMap(ev => Array.isArray(ev.characters) ? ev.characters : []));
       const tags = this._unionList(g.events.flatMap(ev => Array.isArray(ev.tags) ? ev.tags : []));
       const evidence = this._strongestEvidence(g.events.map(ev => ev.evidence));
+      const mediaType = this._bestReleaseMediaType(g.events);
       return {
-        id: 'release-block:' + this._stableHash([g.release, g.universe, g.mediaType, g.mediaTitle, g.episode, i].join('|')),
+        id: 'release-block:' + this._stableHash([g.release, g.universe, g.mediaTitle, i].join('|')),
         title,
         universe: g.universe,
         speculativeUniverse: '',
@@ -216,10 +224,10 @@ export class TimelineRenderer {
         tags: this._unionList(['release-block', ...tags]),
         sortOrder: { custom: i * 10 },
         location: { realm: '', planet: '', region: '', place: '' },
-        media: { type: g.mediaType, title: g.mediaTitle, episode: g.episode },
+        media: { type: mediaType, title: g.mediaTitle, episode: g.episode },
         subEvents: [],
         characters,
-        appearance: { icon: this._mediaIcon(g.mediaType), background: '' },
+        appearance: { icon: this._mediaIcon(mediaType), background: '' },
         _releaseBlock: true,
         _releaseChildren: g.events.map(ev => ({
           id: ev.id,
@@ -239,6 +247,32 @@ export class TimelineRenderer {
     const ep = group.episode || '';
     if (ep && !base.toLowerCase().includes(ep.toLowerCase())) return `${base} ${ep}`.replace(/\s+/g, ' ').trim();
     return base.replace(/\s+/g, ' ').trim();
+  }
+
+  _canonicalReleaseMediaTitle(mediaTitle, episode = '') {
+    const title = this._cleanMediaLabel(mediaTitle || 'Unknown medium');
+    const ep = this._cleanMediaLabel(episode);
+    if (ep && !title.toLowerCase().includes(ep.toLowerCase())) {
+      return this._cleanMediaLabel(`${title} ${ep}`);
+    }
+    return title;
+  }
+
+  _isEventKindType(type) {
+    const t = String(type || '').trim().toLowerCase();
+    return ['event', 'background', 'clue', 'note', 'scene', 'timeline', 'wydarzenie', 'tlo', 'tło', 'wskazowka', 'wskazówka'].includes(t);
+  }
+
+  _bestReleaseMediaType(events) {
+    // Prefer true media types (tv/comic/film/game/book). Ignore event-kind
+    // values that may come from OET Quick Add's `type:` field.
+    for (const ev of events || []) {
+      const type = this._mediaInfoFromEvent(ev).type;
+      if (type && !this._isEventKindType(type)) return type;
+    }
+    // If we only know an episode marker, treat it as TV/series for icon only.
+    if ((events || []).some(ev => this._mediaInfoFromEvent(ev).episode)) return 'tv';
+    return '';
   }
 
   _cleanMediaLabel(value) {

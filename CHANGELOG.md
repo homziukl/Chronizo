@@ -1,5 +1,13 @@
 # Changelog
 
+## Chronizo OET v3.9
+
+- Fixed Release Order grouping for OET Quick Add blocks that use `type: event`, `type: clue`, or `type: background`.
+- Release Order now groups by canonical medium block: `release date + universe + media label`, not by micro-event type.
+- One episode/issue/film such as `Gotham Pilot S01E01` now displays as one release block even when its internal events have different types.
+- Cache-busting updated to `v=3.9`.
+- Strengthened `tests/smoke-release-blocks.mjs` to cover event/clue/background split.
+
 ## Chronizo OET v3.8
 
 - Hotfix for GitHub Pages cache: every JS module import now has a version query (`?v=3.8`), not only `app.js`.

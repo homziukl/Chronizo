@@ -1,6 +1,12 @@
 # ⟁ Chronizo — Builder Chronologii
 
 
+### OET Release Order note
+
+In **Release Order**, Chronizo displays one block per released medium/episode/issue/film. Internal in-story events with the same `release`, `universe`, and `media` are grouped into that block, even if their Quick Add `type:` values are `event`, `clue`, or `background`.
+
+
+
 ## OET v3.5 note
 
 For `characters:` and `tags:` in Quick Add / Quick Update you can use either commas or semicolons:

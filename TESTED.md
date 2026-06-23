@@ -86,3 +86,17 @@ This test set verifies comma/semicolon list parsing and auto-repair of previousl
 
 - App module imports are cache-busted for GitHub Pages (`app.js`, `timeline.js`, `sorting.js`, `events.js`, `formula.js`, `storage.js`, `quick_update.js`, `template.js`).
 - Release block grouping supports `media` as object or string.
+
+
+## v3.9 checks
+
+Checked before packaging v3.9:
+
+```bash
+for f in js/*.js tests/*.mjs; do node --check "$f"; done
+for t in tests/*.mjs; do node "$t"; done
+```
+
+Result: OK.
+
+Specific fix verified: `tests/smoke-release-blocks.mjs` now creates one Gotham Pilot release block from child events with `media.type` values `event`, `clue`, and `background`.

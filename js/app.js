@@ -1,12 +1,12 @@
 // app.js — Main application controller for Chronizo
 
-import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV, importFromCSV, normalizeLoadedProject } from './storage.js?v=3.8';
-import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createSubEvent } from './events.js?v=3.8';
-import { createConnection } from './storage.js?v=3.8';
-import { TimelineRenderer } from './timeline.js?v=3.8';
-import { parseFormula, universeNameFromMedia } from './formula.js?v=3.8';
-import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js?v=3.8';
-import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.8';
+import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV, importFromCSV, normalizeLoadedProject } from './storage.js?v=3.9';
+import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createSubEvent } from './events.js?v=3.9';
+import { createConnection } from './storage.js?v=3.9';
+import { TimelineRenderer } from './timeline.js?v=3.9';
+import { parseFormula, universeNameFromMedia } from './formula.js?v=3.9';
+import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js?v=3.9';
+import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.9';
 
 // ===== State =====
 let project = normalizeLoadedProject(loadFromLocalStorage() || createProject('Omniversal Event Tree'));

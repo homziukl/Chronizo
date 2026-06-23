@@ -21,13 +21,15 @@ globalThis.document = { getElementById: () => mkEl() };
 
 const r = new TimelineRenderer(mkEl());
 const p = createProject('release blocks');
-p.events.push(createEvent({ title: 'Wayne murders', universe: 'main', releaseDate: '2014-09-22', media: { type: 'series', title: 'Gotham Pilot', episode: 'S01E01' }, date: { exact: '2014-09-11', approximate: '', rangeFrom: '', rangeTo: '', season: '', era: '' }, characters: ['Bruce Wayne', 'Jim Gordon'] }));
-p.events.push(createEvent({ title: 'Pepper pursuit', universe: 'main', releaseDate: '2014-09-22', media: { type: 'series', title: 'Gotham Pilot', episode: 'S01E01' }, date: { exact: '2014-09-13', approximate: '', rangeFrom: '', rangeTo: '', season: '', era: '' }, characters: ['Jim Gordon', 'Mario Pepper'] }));
+p.events.push(createEvent({ title: 'Wayne murders', universe: 'main', releaseDate: '2014-09-22', media: { type: 'event', title: 'Gotham Pilot', episode: 'S01E01' }, date: { exact: '2014-09-11', approximate: '', rangeFrom: '', rangeTo: '', season: '', era: '' }, characters: ['Bruce Wayne', 'Jim Gordon'] }));
+p.events.push(createEvent({ title: 'Newspaper clue', universe: 'main', releaseDate: '2014-09-22', media: { type: 'clue', title: 'Gotham Pilot', episode: 'S01E01' }, date: { exact: '2014-09-14', approximate: '', rangeFrom: '', rangeTo: '', season: '', era: '' }, characters: ['Jim Gordon'] }));
+p.events.push(createEvent({ title: 'Gordon background', universe: 'main', releaseDate: '2014-09-22', media: { type: 'background', title: 'Gotham Pilot', episode: 'S01E01' }, date: { exact: '2014-09-11', approximate: '', rangeFrom: '', rangeTo: '', season: '', era: '' }, characters: ['Jim Gordon'] }));
+p.events.push(createEvent({ title: 'Pepper pursuit', universe: 'main', releaseDate: '2014-09-22', media: { type: 'event', title: 'Gotham Pilot', episode: 'S01E01' }, date: { exact: '2014-09-13', approximate: '', rangeFrom: '', rangeTo: '', season: '', era: '' }, characters: ['Jim Gordon', 'Mario Pepper'] }));
 r.setProject(p);
 r.setSortMode('release');
 assert.equal(r._displayEvents.length, 1);
 assert.equal(r._displayEvents[0]._releaseBlock, true);
-assert.equal(r._displayEvents[0]._releaseChildren.length, 2);
+assert.equal(r._displayEvents[0]._releaseChildren.length, 4);
 assert.equal(r._displayEvents[0].title, 'Gotham Pilot S01E01');
 assert.deepEqual(r._displayEvents[0].characters.sort(), ['Bruce Wayne', 'Jim Gordon', 'Mario Pepper'].sort());
 console.log('smoke-release-blocks OK');
