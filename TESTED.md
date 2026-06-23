@@ -1,18 +1,25 @@
 # Tested
 
-Run from the project root:
+Checked before packaging v3:
 
 ```bash
-node --check js/app.js js/events.js js/formula.js js/quick_update.js js/sorting.js js/storage.js js/template.js js/timeline.js
+node --check js/app.js
+node --check js/timeline.js
+node --check js/storage.js
+node --check js/quick_update.js
 node tests/smoke-render.mjs
 node tests/smoke-sort.mjs
 node tests/smoke-quick-update.mjs
+node tests/smoke-character-focus.mjs
 ```
 
-Current package passed these checks in the ChatGPT sandbox before zipping.
+Result: OK.
 
-Manual sanity coverage included:
+Manual browser checklist after publishing to GitHub Pages:
 
-- Quick Add still uses the existing add-event parser.
-- Quick Update parser recognizes `mode: update`, `match:` and set fields.
-- Light theme now sets theme state on `html`, `body`, body classes and renderer.
+1. Hard refresh with `Ctrl + F5`.
+2. Add 2–3 events with the same character, for example `Jim Gordon`.
+3. Type/select `Jim Gordon` in Character Focus.
+4. Confirm only Jim's line appears.
+5. Toggle `Fast` and confirm the focused line stays visible.
+6. Save JSON and reload page; focus/settings should persist.

@@ -42,6 +42,9 @@ function persistProject() {
 const canvas = document.getElementById('timeline-canvas');
 const renderer = new TimelineRenderer(canvas);
 renderer.setProject(project);
+renderer.setCharacterThreadMode(project.settings?.characterThreadMode || 'focused');
+renderer.setFocusedCharacter(project.settings?.focusedCharacter || '');
+renderer.setPerformanceMode(!!project.settings?.performanceMode);
 renderer.resize();
 window.addEventListener('resize', () => renderer.resize());
 setInterval(() => persistProject(), 30000);
@@ -52,10 +55,16 @@ renderer.onReorder = () => persistProject();
 
 // ===== Helpers =====
 function refreshAll() {
+  const settings = ensureSettings();
+  renderer.setProject(project);
+  renderer.setCharacterThreadMode(settings.characterThreadMode || 'focused');
+  renderer.setFocusedCharacter(settings.focusedCharacter || '');
+  renderer.setPerformanceMode(!!settings.performanceMode);
   applyFilters();
   updateProjectLabel();
   populateUniverseSelects();
   populateFilterUniverse();
+  updateCharacterTools();
   persistProject();
 }
 
@@ -92,6 +101,97 @@ function populateFilterUniverse() {
   sel.value = val;
 }
 
+function ensureSettings() {
+  project.settings = {
+    performanceMode: false,
+    characterThreadMode: 'focused',
+    focusedCharacter: '',
+    ...(project.settings || {})
+  };
+  return project.settings;
+}
+
+function allCharacterNames() {
+  const names = new Map();
+  project.events.forEach(ev => {
+    (Array.isArray(ev.characters) ? ev.characters : []).forEach(name => {
+      const clean = String(name || '').trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (!names.has(key)) names.set(key, clean);
+    });
+  });
+  return [...names.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function eventHasCharacter(ev, name) {
+  const q = String(name || '').trim().toLowerCase();
+  if (!q) return false;
+  return (Array.isArray(ev.characters) ? ev.characters : [])
+    .some(c => String(c || '').toLowerCase() === q || String(c || '').toLowerCase().includes(q));
+}
+
+function countCharacterEvents(name) {
+  if (!String(name || '').trim()) return 0;
+  return project.events.filter(ev => eventHasCharacter(ev, name)).length;
+}
+
+function updateFocusBanner() {
+  const settings = ensureSettings();
+  const name = settings.focusedCharacter || '';
+  const banner = document.getElementById('character-focus-banner');
+  const nameEl = document.getElementById('character-focus-name');
+  const countEl = document.getElementById('character-focus-count');
+  if (!banner || !nameEl || !countEl) return;
+  if (!name) {
+    banner.classList.add('hidden');
+    nameEl.textContent = '';
+    countEl.textContent = '';
+    return;
+  }
+  const count = countCharacterEvents(name);
+  nameEl.textContent = name;
+  countEl.textContent = count ? `— ${count} event(s)` : '— no exact match yet';
+  banner.classList.remove('hidden');
+}
+
+function updateCharacterTools() {
+  const settings = ensureSettings();
+  const input = document.getElementById('character-focus');
+  const datalist = document.getElementById('character-list');
+  const perf = document.getElementById('performance-mode');
+  if (datalist) {
+    datalist.innerHTML = '';
+    allCharacterNames().forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      datalist.appendChild(opt);
+    });
+  }
+  if (input && document.activeElement !== input) input.value = settings.focusedCharacter || '';
+  if (perf) perf.checked = !!settings.performanceMode;
+  updateFocusBanner();
+}
+
+function setFocusedCharacter(name) {
+  const settings = ensureSettings();
+  settings.focusedCharacter = String(name || '').trim();
+  settings.characterThreadMode = settings.focusedCharacter ? 'focused' : 'focused';
+  renderer.setCharacterThreadMode(settings.characterThreadMode);
+  renderer.setFocusedCharacter(settings.focusedCharacter);
+  const input = document.getElementById('character-focus');
+  if (input) input.value = settings.focusedCharacter;
+  updateFocusBanner();
+  persistProject();
+}
+
+function setPerformanceMode(on) {
+  const settings = ensureSettings();
+  settings.performanceMode = !!on;
+  renderer.setPerformanceMode(settings.performanceMode);
+  persistProject();
+}
+
 // ===== Filtering =====
 function applyFilters() {
   // Search no longer hides events — it highlights a path (see the search-box
@@ -120,8 +220,26 @@ searchBox.addEventListener('input', () => {
   searchBox.classList.toggle('no-match', noMatch);
   searchBox.title = noMatch ? 'No matches' : '';
 });
+const characterFocusInput = document.getElementById('character-focus');
+let characterFocusTimer = null;
+characterFocusInput?.addEventListener('input', () => {
+  clearTimeout(characterFocusTimer);
+  characterFocusTimer = setTimeout(() => setFocusedCharacter(characterFocusInput.value), 250);
+});
+characterFocusInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(characterFocusTimer);
+    setFocusedCharacter(characterFocusInput.value);
+  }
+});
+
+document.getElementById('btn-clear-character-focus')?.addEventListener('click', () => setFocusedCharacter(''));
+document.getElementById('btn-clear-character-focus-banner')?.addEventListener('click', () => setFocusedCharacter(''));
+document.getElementById('performance-mode')?.addEventListener('change', (e) => setPerformanceMode(e.target.checked));
 document.getElementById('filter-universe').addEventListener('change', applyFilters);
 document.getElementById('filter-evidence').addEventListener('change', applyFilters);
+updateCharacterTools();
 
 // ===== Top bar buttons =====
 document.getElementById('btn-new').addEventListener('click', () => {

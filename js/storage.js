@@ -6,13 +6,19 @@ const DEFAULT_PROJECT = {
     author: 'user',
     created: new Date().toISOString(),
     modified: new Date().toISOString(),
-    version: '1.1.0'
+    version: '1.3.0',
+    schemaVersion: 3
   },
   universes: [
     { id: 'main', name: 'Main Timeline', color: '#ff6b00', isMain: true, parentUniverse: null, appearance: { icon: '', background: '' } }
   ],
   events: [],
-  connections: []
+  connections: [],
+  settings: {
+    performanceMode: false,
+    characterThreadMode: 'focused',
+    focusedCharacter: ''
+  }
 };
 
 const STORAGE_KEY = 'chronizo-autosave';
@@ -220,7 +226,11 @@ export function normalizeLoadedProject(project = {}) {
     },
     universes: [],
     events: [],
-    connections: []
+    connections: [],
+    settings: {
+      ...DEFAULT_PROJECT.settings,
+      ...(project.settings || {})
+    }
   };
 
   const sourceUniverses = Array.isArray(project.universes) && project.universes.length
@@ -244,6 +254,13 @@ export function normalizeLoadedProject(project = {}) {
   normalized.connections = (Array.isArray(project.connections) ? project.connections : [])
     .map(normalizeConnection)
     .filter(c => validEventIds.has(c.sourceEventId) && validEventIds.has(c.targetEventId));
+
+  normalized.settings.performanceMode = !!normalized.settings.performanceMode;
+  normalized.settings.characterThreadMode = ['off', 'focused', 'all'].includes(normalized.settings.characterThreadMode)
+    ? normalized.settings.characterThreadMode
+    : 'focused';
+  normalized.settings.focusedCharacter = String(normalized.settings.focusedCharacter || '').trim();
+  normalized.meta.schemaVersion = Number(normalized.meta.schemaVersion || 3);
 
   return normalized;
 }

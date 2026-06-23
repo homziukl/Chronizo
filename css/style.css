@@ -605,3 +605,54 @@ body.theme-light dialog {
   background: var(--bg-panel);
   color: var(--text);
 }
+
+/* ===== OET v3 — performance/focus controls ===== */
+.focus-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 3px;
+  width: 170px;
+  transition: all 0.15s;
+}
+.focus-input:focus {
+  outline: none;
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 6px var(--glow-orange);
+  width: 220px;
+}
+.icon-btn {
+  padding: 6px 8px;
+  min-width: 28px;
+}
+.compact-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-label);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 8px;
+  background: var(--bg-input);
+  user-select: none;
+}
+.compact-toggle input { margin: 0; accent-color: var(--accent-orange); }
+.focus-banner {
+  top: 54px;
+  background: rgba(39, 174, 96, 0.16);
+  border-color: var(--accent-green);
+}
+.focus-banner strong { color: var(--accent-gold); }
+.focus-banner span { color: var(--text-value); }
+
+@media (max-width: 1200px) {
+  #topbar { padding: 0 8px; }
+  .topbar-right { gap: 5px; }
+  button, select { padding: 5px 8px; font-size: 11px; }
+  .search-input { width: 110px; }
+  .focus-input { width: 135px; }
+}

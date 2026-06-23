@@ -40,6 +40,14 @@ export class TimelineRenderer {
     this._lastMatchCount = 0;    // returned by setSearchQuery for the UI
     this._lastSelectedId = null;
 
+    // OET v3 performance/focus mode: character threads default to a focused
+    // path instead of drawing every character line at once. This keeps large
+    // projects readable and lets the user ask for e.g. "Jim Gordon" only.
+    this.performanceMode = false;
+    this.characterThreadMode = 'focused'; // off | focused | all
+    this.focusedCharacter = '';
+    this._focusedIds = null;
+
     this.offsetX = 100;
     this.offsetY = 0;
     this.zoom = 1;
@@ -81,6 +89,17 @@ export class TimelineRenderer {
   // Search highlight (Req 10) — set the query, repaint, and return how many
   // events matched so the app can show a "No matches" message (Req 10.5).
   setSearchQuery(q) { this.searchQuery = q || ''; this.render(); return this._lastMatchCount; }
+  setPerformanceMode(on) { this.performanceMode = !!on; this.render(); }
+  setCharacterThreadMode(mode) {
+    this.characterThreadMode = ['off', 'focused', 'all'].includes(mode) ? mode : 'focused';
+    this.render();
+  }
+  setFocusedCharacter(name) {
+    this.focusedCharacter = String(name || '').trim();
+    if (this.focusedCharacter && this.characterThreadMode === 'off') this.characterThreadMode = 'focused';
+    this.render();
+    return this._focusedIds ? this._focusedIds.size : 0;
+  }
 
   // Theme palette (Req 13.2–13.4) — concrete colors per theme. Label/value text
   // is pure black (#000) in light and white (#fff) in dark, with NO low-contrast
@@ -141,13 +160,14 @@ export class TimelineRenderer {
     // vertically before drawing threads/blocks so everything uses the resolved
     // positions. Deterministic (stable order), so re-renders are identical.
     this._resolveBlockCollisions();
-    this._drawDateRanges(layout);
-    this._drawConnections();
-    // Character threads (Linie_Postaci, Req 7.2/7.3/7.5) — drawn before the
-    // event blocks so the connecting lines sit behind the cards.
+    this._focusedIds = null;
+    if (!this.performanceMode) this._drawDateRanges(layout);
+    if (!this.performanceMode) this._drawConnections();
+    // Character threads (Linie_Postaci) — v3 defaults to focused mode so the
+    // timeline is clean until a character is selected.
     this._drawCharacterThreads();
     this.eventPositions.forEach(ep => this._drawEventBlock(ep));
-    this._drawSubEventMarkers(layout);
+    if (!this.performanceMode) this._drawSubEventMarkers(layout);
     this._drawDragGhost();
 
     ctx.restore();
@@ -744,38 +764,66 @@ export class TimelineRenderer {
   // the first occurrence (Req 7.3). A character appearing in a single event
   // gets no connecting line (Req 7.5).
   _drawCharacterThreads() {
+    this._focusedIds = null;
     if (!this.eventPositions || this.eventPositions.length === 0) return;
+    if (this.characterThreadMode === 'off') return;
+
     const ctx = this.ctx;
     const events = this.filteredEvents || this.project.events;
     const threads = characterThreads(events, this.sortMode);
     const posById = new Map(this.eventPositions.map(ep => [ep.id, ep]));
-    // Search query for thread highlighting (Req 10.3): a thread matches when the
-    // character name contains the query OR any of its events matched.
+    const focus = String(this.focusedCharacter || '').trim().toLowerCase();
+
+    // Focused mode is intentionally silent until a character is chosen. This is
+    // the OET workflow: select "Jim Gordon" and only then draw his timeline.
+    if (this.characterThreadMode === 'focused' && !focus) return;
+
     const q = (this.searchQuery && this.searchQuery.trim())
       ? this.searchQuery.trim().toLowerCase() : null;
 
     threads.forEach((ids, name) => {
+      const nameLc = String(name || '').toLowerCase();
+      const focused = !!focus && (nameLc === focus || nameLc.includes(focus));
+      if (this.characterThreadMode === 'focused' && !focused) return;
+
       const pts = ids.map(id => posById.get(id)).filter(Boolean);
-      if (pts.length < 2) return; // single appearance → no line (Req 7.5)
-      const isMatch = !q || name.toLowerCase().includes(q)
-        || (this._matched && ids.some(id => this._matched.has(id)));
+      if (pts.length < 2) {
+        if (focused) this._focusedIds = new Set(ids);
+        return;
+      }
+
+      if (focused) {
+        if (!this._focusedIds) this._focusedIds = new Set();
+        ids.forEach(id => this._focusedIds.add(id));
+      }
+
+      const isMatch = !q || nameLc.includes(q) || (this._matched && ids.some(id => this._matched.has(id)));
       const dim = q && !isMatch ? 0.25 : 1;
       const color = this._characterColor(name);
       ctx.save();
       ctx.strokeStyle = color;
-      ctx.globalAlpha = 0.45 * dim;
-      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = (focused ? 0.86 : 0.38) * dim;
+      ctx.lineWidth = focused ? 3 : 1.25;
       ctx.setLineDash([]);
       ctx.beginPath();
       pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
       ctx.stroke();
-      // Name label at the first occurrence so the thread is identifiable.
-      ctx.globalAlpha = 0.85 * dim;
+
+      // Event beads on the focused path make the route readable even when cards
+      // are dense. Non-focused/all mode keeps old lightweight labels only.
+      if (focused) {
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = color;
+        pts.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2); ctx.fill(); });
+      }
+
+      ctx.globalAlpha = (focused ? 1 : 0.75) * dim;
       ctx.fillStyle = color;
-      ctx.font = '9px "Share Tech Mono",monospace';
+      ctx.font = `${focused ? 'bold ' : ''}10px "Share Tech Mono",monospace`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText(name, pts[0].x + 8, pts[0].y - 8);
+      if (focused && pts.length > 1) ctx.fillText(name, pts[pts.length - 1].x + 8, pts[pts.length - 1].y - 8);
       ctx.restore();
     });
   }
@@ -876,6 +924,8 @@ export class TimelineRenderer {
     // dimmed so the matching path stands out; matching blocks keep full alpha.
     const isMatch = !this._matched || this._matched.has(ep.id);
     if (!isMatch) alpha *= 0.2;
+    const focusActive = !!(this.focusedCharacter && this._focusedIds);
+    if (focusActive && !this._focusedIds.has(ep.id)) alpha *= this.performanceMode ? 0.22 : 0.38;
     const app = getAppearance(ev);
 
     const maxLen = this.zoom > 0.6 ? 16 : (this.zoom > 0.3 ? 11 : 7);
