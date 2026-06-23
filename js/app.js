@@ -482,7 +482,7 @@ document.getElementById('btn-quickadd-spec').addEventListener('click', () => {
   document.getElementById('quickadd-text').value = EXAMPLE_FORMULA;
 });
 
-document.getElementById('btn-quickupdate-spec').addEventListener('click', () => {
+document.getElementById('btn-quickupdate-spec')?.addEventListener('click', () => {
   document.getElementById('quickadd-text').value = UPDATE_FORMULA;
 });
 

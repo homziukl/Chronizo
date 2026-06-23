@@ -207,3 +207,8 @@ The following settings are saved with the project/autosave:
   }
 }
 ```
+
+
+## OET v3.1 hotfix
+
+If the top menu is dead after deploying v3, update to v3.1. The v3 package missed one Quick Update button ID, which stopped `app.js` during startup in browsers.

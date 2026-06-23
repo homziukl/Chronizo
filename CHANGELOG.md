@@ -34,3 +34,10 @@ This release prepares Chronizo for larger Omniversal Event Tree projects without
 - Storage is still localStorage for now.
 - Renderer is not fully virtualized yet.
 - The goal of v3 is to make the app usable and scalable enough for early OET work, not to rewrite the engine prematurely.
+## OET v3.1 — Top menu hotfix
+
+- Fixed a startup-breaking missing `btn-quickupdate-spec` button in the Quick Add dialog.
+- Added the missing **Show Update format** button.
+- Made the Quick Update format listener defensive so the whole app will not die if that optional button is missing in a cached HTML version.
+- Added a DOM ID smoke test to catch this class of bug before packaging.
+

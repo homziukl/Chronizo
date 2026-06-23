@@ -23,3 +23,5 @@ Manual browser checklist after publishing to GitHub Pages:
 4. Confirm only Jim's line appears.
 5. Toggle `Fast` and confirm the focused line stays visible.
 6. Save JSON and reload page; focus/settings should persist.
+
+- `node tests/smoke-dom-ids.mjs` — verifies literal `getElementById(...)` references exist in `index.html`.
