@@ -6,7 +6,7 @@ import { createConnection } from './storage.js';
 import { TimelineRenderer } from './timeline.js';
 import { parseFormula, universeNameFromMedia } from './formula.js';
 import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js';
-import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.3';
+import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.5';
 
 // ===== State =====
 let project = normalizeLoadedProject(loadFromLocalStorage() || createProject('Omniversal Event Tree'));
@@ -22,6 +22,14 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+
+function splitInputList(value) {
+  return String(value || '')
+    .split(/[;,]/)
+    .map(s => s.trim())
+    .filter(Boolean);
 }
 
 function setStatus(message, type = 'info') {
@@ -695,8 +703,8 @@ form.addEventListener('submit', (e) => {
       region: document.getElementById('ev-loc-region').value.trim(),
       place: document.getElementById('ev-loc-place').value.trim()
     },
-    tags: document.getElementById('ev-tags').value.split(',').map(t => t.trim()).filter(Boolean),
-    characters: document.getElementById('ev-characters').value.split(',').map(s => s.trim()).filter(Boolean),
+    tags: splitInputList(document.getElementById('ev-tags').value),
+    characters: splitInputList(document.getElementById('ev-characters').value),
     sortOrder: { custom: parseInt(document.getElementById('ev-sort-order').value) || 0 },
     subEvents: collectSubEvents(),
     appearance: {
@@ -977,7 +985,7 @@ document.getElementById('btn-bulk-apply').addEventListener('click', () => {
   const ids = renderer.getSelectedIds();
   const uni = document.getElementById('bulk-universe').value;
   const evi = document.getElementById('bulk-evidence').value;
-  const tags = document.getElementById('bulk-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+  const tags = splitInputList(document.getElementById('bulk-tags').value);
   const planet = document.getElementById('bulk-planet').value.trim();
   const region = document.getElementById('bulk-region').value.trim();
 

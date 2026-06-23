@@ -1,3 +1,18 @@
+# Chronizo OET v3.5
+
+- Quick Add now accepts both comma and semicolon separators for `characters:` and `tags:`.
+- Quick Update now accepts both separators for `characters`, `add_characters`, `remove_characters`, `tags`, `add_tags` and `remove_tags`.
+- Manual event form and bulk tags also accept both separators.
+- Project normalization now auto-repairs older events where a character/tag was accidentally stored as one string like `Bruce Wayne; Alfred Pennyworth`.
+- Cache-busting updated to `v=3.5`.
+- Added `tests/smoke-list-separators.mjs`.
+
+# Chronizo OET v3.4
+
+- Quick Add accepts `notes:`, `note:` and `description:` as aliases appended to `reasoning:`.
+- Quick Add auto-splits repeated `title:` blocks when `---` separators are missing.
+- Cache-busting updated to `v=3.4`.
+
 
 ## v3.3 — hard cache/syntax hotfix
 

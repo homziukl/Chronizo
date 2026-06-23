@@ -71,17 +71,33 @@ export function parseFormula(text) {
   return { events, errors, warnings };
 }
 
-// Split on lines that contain only a separator: --- or ===
+// Split on lines that contain only a separator: --- or ===.
+// OET usability guard: a repeated top-level `title:` also starts a new block.
+// This makes AI-generated multi-event output safer even when the separator line
+// was accidentally omitted. Continuation lines are still treated as part of the
+// current block unless they start with `title:`.
 function splitBlocks(text) {
   const blocks = [];
   let current = [];
+  let currentHasTitle = false;
   text.split(/\r?\n/).forEach(line => {
+    const trimmed = line.trim();
     if (/^\s*(-{3,}|={3,})\s*$/.test(line)) {
       blocks.push(current);
       current = [];
-    } else {
-      current.push(line);
+      currentHasTitle = false;
+      return;
     }
+
+    if (/^title\s*:/i.test(trimmed) && currentHasTitle && current.some(l => l.trim())) {
+      blocks.push(current);
+      current = [line];
+      currentHasTitle = true;
+      return;
+    }
+
+    current.push(line);
+    if (/^title\s*:/i.test(trimmed)) currentHasTitle = true;
   });
   blocks.push(current);
   return blocks.filter(b => b.some(l => l.trim()));
@@ -134,6 +150,13 @@ function stripComment(line) {
   return line.replace(/\s+#\s.*$/, '');
 }
 
+
+function appendText(existing, value) {
+  const clean = String(value || '').trim();
+  if (!clean) return existing || '';
+  return existing ? `${existing} ${clean}` : clean;
+}
+
 function applyField(data, key, value, blockNumber, warnings) {
   switch (key) {
     case 'title': data.title = value; break;
@@ -167,7 +190,10 @@ function applyField(data, key, value, blockNumber, warnings) {
       break;
     }
     case 'source': data.source = value; break;
-    case 'reasoning': data.reasoning = value; break;
+    case 'reasoning': data.reasoning = appendText(data.reasoning, value); break;
+    case 'note':
+    case 'notes':
+    case 'description': data.reasoning = appendText(data.reasoning, value); break;
     case 'tags': data.tags = splitList(value); break;
     case 'characters': data.characters = splitList(value); break;
     case 'realm': data.location.realm = value; break;
@@ -229,7 +255,10 @@ function parseSegment(value) {
 }
 
 function splitList(value) {
-  return value.split(',').map(s => s.trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[;,]/)
+    .map(s => s.trim())
+    .filter(Boolean);
 }
 
 // "Avengers: Endgame" -> "Avengers"; "The Witcher S01E05" -> "The Witcher"

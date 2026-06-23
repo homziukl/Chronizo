@@ -217,5 +217,8 @@ function stripComment(line) {
 }
 
 function splitList(value) {
-  return String(value || '').split(',').map(s => s.trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[;,]/)
+    .map(s => s.trim())
+    .filter(Boolean);
 }

@@ -148,6 +148,27 @@ function defaultMedia(media = {}) {
   };
 }
 
+
+function normalizeList(value) {
+  const source = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
+  const seen = new Set();
+  const out = [];
+  source.forEach(item => {
+    String(item || '')
+      .split(/[;,]/)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .forEach(part => {
+        const key = part.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push(part);
+        }
+      });
+  });
+  return out;
+}
+
 function normalizeSubEvent(seg = {}) {
   return {
     id: seg.id || uuid(),
@@ -171,12 +192,12 @@ function normalizeEvent(ev = {}, index = 0) {
     source: ev.source || '',
     reasoning: ev.reasoning || '',
     evidence: ['shown','described','mentioned','implied','speculated'].includes(ev.evidence) ? ev.evidence : 'shown',
-    tags: Array.isArray(ev.tags) ? ev.tags.filter(Boolean) : [],
+    tags: normalizeList(ev.tags),
     sortOrder: { custom: Number(ev.sortOrder?.custom ?? index * 10) || 0 },
     location: defaultLocation(ev.location || {}),
     media: defaultMedia(ev.media || {}),
     subEvents: Array.isArray(ev.subEvents) ? ev.subEvents.map(normalizeSubEvent) : [],
-    characters: Array.isArray(ev.characters) ? ev.characters.filter(Boolean) : [],
+    characters: normalizeList(ev.characters),
     appearance: {
       icon: ev.appearance?.icon || '',
       background: ev.appearance?.background || ''
@@ -481,8 +502,8 @@ function parseCSV(text) {
         region: get('location_region'),
         place: get('location_place')
       },
-      tags: (get('tags') || '').split(';').map(t => t.trim()).filter(Boolean),
-      characters: (get('characters') || '').split(';').map(c => c.trim()).filter(Boolean),
+      tags: normalizeList(get('tags')), 
+      characters: normalizeList(get('characters')), 
       subEvents: parseSubEventsCell(get('sub_events')),
       sortOrder: { custom: parseInt(get('custom_sort_order')) || 0 }
     });

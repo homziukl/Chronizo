@@ -1,5 +1,18 @@
 # ⟁ Chronizo — Builder Chronologii
 
+
+## OET v3.5 note
+
+For `characters:` and `tags:` in Quick Add / Quick Update you can use either commas or semicolons:
+
+```txt
+characters: Bruce Wayne, Alfred Pennyworth, Jim Gordon
+characters: Bruce Wayne; Alfred Pennyworth; Jim Gordon
+```
+
+Chronizo also repairs older imported data where a semicolon-separated list was accidentally stored as one character/tag.
+
+
 Przeglądarkowy builder osi czasu do budowania chronologii **dowolnych treści** —
 seriali, filmów, gier, książek, komiksów czy wydarzeń historycznych. Tworzysz
 rozgałęzione, wielowątkowe osie czasu, grupujesz wydarzenia w uniwersa i datujesz
@@ -224,3 +237,8 @@ v3/v3.1 could fail during startup because the Quick Add AI prompt module contain
 ## v3.3 hotfix
 
 If GitHub Pages keeps an old broken module, this release cache-busts `app.js` and `template.js` and removes browser-fragile template literals from `template.js`.
+
+
+## v3.4 Quick Add tolerance
+
+Quick Add is more forgiving: repeated `title:` lines start new events even without `---`, and `notes:` / `description:` are accepted as aliases for `reasoning:`. Explicit `---` separators are still recommended.

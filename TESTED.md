@@ -51,3 +51,24 @@ The v3.2 smoke-app-start test specifically catches the class of bug where `app.j
 - `node --check js/app.js` passes.
 - `template.js` has no exported template literal for `AI_PROMPT`; prompt is built from safe string array.
 - `index.html` uses `js/app.js?v=3.3`; `app.js` imports `template.js?v=3.3`.
+
+
+## v3.5
+
+Checked before packaging v3.5:
+
+```bash
+for f in js/*.js tests/*.mjs; do node --check "$f"; done
+node tests/smoke-list-separators.mjs
+node tests/smoke-quickadd-tolerance.mjs
+node tests/smoke-quick-update.mjs
+node tests/smoke-character-focus.mjs
+node tests/smoke-render.mjs
+node tests/smoke-sort.mjs
+node tests/smoke-dom-ids.mjs
+node tests/smoke-app-start.mjs
+```
+
+Result: OK.
+
+This test set verifies comma/semicolon list parsing and auto-repair of previously imported semicolon-separated character/tag strings.
