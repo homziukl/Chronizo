@@ -5,7 +5,8 @@ import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, create
 import { createConnection } from './storage.js';
 import { TimelineRenderer } from './timeline.js';
 import { parseFormula, universeNameFromMedia } from './formula.js';
-import { EXAMPLE_FORMULA, AI_PROMPT } from './template.js';
+import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js';
+import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js';
 
 // ===== State =====
 let project = normalizeLoadedProject(loadFromLocalStorage() || createProject('Omniversal Event Tree'));
@@ -173,6 +174,185 @@ function addEventsFromFormula(text) {
   return { added: events.length, errors, warnings: warnings || [] };
 }
 
+
+function getUniverseName(id) {
+  return project.universes.find(u => u.id === id)?.name || id || '';
+}
+
+function lc(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function includesText(haystack, needle) {
+  const n = lc(needle);
+  if (!n) return false;
+  return lc(haystack).includes(n);
+}
+
+function listHasValue(list, needle) {
+  const n = lc(needle);
+  return Array.isArray(list) && list.some(v => lc(v) === n);
+}
+
+function eventMatchesQuickUpdate(ev, matcher) {
+  const value = matcher.value;
+  switch (matcher.field) {
+    case 'id': return ev.id === value;
+    case 'title': return includesText(ev.title, value);
+    case 'media': return includesText(ev.media?.title, value);
+    case 'episode': return includesText(ev.media?.episode, value);
+    case 'source': return includesText(ev.source, value);
+    case 'tag': return listHasValue(ev.tags, value);
+    case 'character': return listHasValue(ev.characters, value);
+    case 'evidence': return lc(ev.evidence) === lc(value);
+    case 'universe': return lc(ev.universe) === lc(value) || lc(getUniverseName(ev.universe)) === lc(value);
+    default: return false;
+  }
+}
+
+function findQuickUpdateMatches(op) {
+  return project.events.filter(ev => op.matchers.every(m => eventMatchesQuickUpdate(ev, m)));
+}
+
+function ensureEventLocation(ev) {
+  if (!ev.location || typeof ev.location === 'string') {
+    ev.location = { realm: '', planet: '', region: '', place: typeof ev.location === 'string' ? ev.location : '' };
+  }
+  return ev.location;
+}
+
+function uniqueList(list) {
+  const out = [];
+  const seen = new Set();
+  (list || []).forEach(item => {
+    const value = String(item || '').trim();
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) return;
+    seen.add(key);
+    out.push(value);
+  });
+  return out;
+}
+
+function removeFromList(list, remove) {
+  const banned = new Set((remove || []).map(v => lc(v)));
+  return (list || []).filter(v => !banned.has(lc(v)));
+}
+
+function summarizeMatchers(matchers) {
+  return matchers.map(m => `${m.field}=${m.value}`).join(' AND ');
+}
+
+function applyQuickUpdateOperation(op, matches) {
+  const now = new Date().toISOString();
+  let changed = 0;
+
+  matches.forEach(ev => {
+    const before = JSON.stringify(ev);
+    const set = op.set || {};
+
+    if (set.universeName !== undefined) ev.universe = resolveUniverseByName(set.universeName);
+    if (set.speculativeUniverseName !== undefined) {
+      ev.speculativeUniverse = set.speculativeUniverseName ? resolveUniverseByName(set.speculativeUniverseName) : '';
+    }
+
+    if (set.date) {
+      ev.date = ev.date || {};
+      ev.date.exact = set.date.exact;
+      ev.date.approximate = set.date.approximate;
+    }
+    if (set.rangeFrom !== undefined) { ev.date = ev.date || {}; ev.date.rangeFrom = set.rangeFrom; }
+    if (set.rangeTo !== undefined) { ev.date = ev.date || {}; ev.date.rangeTo = set.rangeTo; }
+    if (set.season !== undefined) { ev.date = ev.date || {}; ev.date.season = set.season; }
+    if (set.era !== undefined) { ev.date = ev.date || {}; ev.date.era = set.era; }
+    if (set.releaseDate !== undefined) ev.releaseDate = set.releaseDate;
+    if (set.evidence !== undefined) ev.evidence = set.evidence;
+    if (set.source !== undefined) ev.source = set.source;
+    if (set.reasoning !== undefined) ev.reasoning = set.reasoning;
+    if (set.appendReasoning) {
+      const suffix = set.appendReasoning.trim();
+      ev.reasoning = [ev.reasoning || '', suffix].filter(Boolean).join('\n');
+    }
+
+    if (set.mediaTitle !== undefined || set.mediaEpisode !== undefined || set.mediaType !== undefined) {
+      ev.media = ev.media || { type: '', title: '', episode: '' };
+      if (set.mediaTitle !== undefined) ev.media.title = set.mediaTitle;
+      if (set.mediaEpisode !== undefined) ev.media.episode = set.mediaEpisode;
+      if (set.mediaType !== undefined) ev.media.type = set.mediaType;
+    }
+
+    if (set.tags) ev.tags = uniqueList(set.tags);
+    if (op.addTags?.length) ev.tags = uniqueList([...(ev.tags || []), ...op.addTags]);
+    if (op.removeTags?.length) ev.tags = removeFromList(ev.tags || [], op.removeTags);
+
+    if (set.characters) ev.characters = uniqueList(set.characters);
+    if (op.addCharacters?.length) ev.characters = uniqueList([...(ev.characters || []), ...op.addCharacters]);
+    if (op.removeCharacters?.length) ev.characters = removeFromList(ev.characters || [], op.removeCharacters);
+
+    if (set.realm !== undefined || set.planet !== undefined || set.region !== undefined || set.place !== undefined) {
+      const loc = ensureEventLocation(ev);
+      if (set.realm !== undefined) loc.realm = set.realm;
+      if (set.planet !== undefined) loc.planet = set.planet;
+      if (set.region !== undefined) loc.region = set.region;
+      if (set.place !== undefined) loc.place = set.place;
+    }
+
+    if (set.sort !== undefined) ev.sortOrder = { ...(ev.sortOrder || {}), custom: set.sort };
+    if (set.icon !== undefined || set.background !== undefined) {
+      ev.appearance = ev.appearance || { icon: '', background: '' };
+      if (set.icon !== undefined) ev.appearance.icon = set.icon;
+      if (set.background !== undefined) ev.appearance.background = set.background;
+    }
+
+    ev.updateHistory = Array.isArray(ev.updateHistory) ? ev.updateHistory : [];
+    ev.updateHistory.push({
+      at: now,
+      mode: 'quick-update',
+      match: summarizeMatchers(op.matchers),
+      set: { ...set },
+      addTags: [...(op.addTags || [])],
+      removeTags: [...(op.removeTags || [])],
+      addCharacters: [...(op.addCharacters || [])],
+      removeCharacters: [...(op.removeCharacters || [])]
+    });
+
+    if (JSON.stringify(ev) !== before) changed++;
+  });
+
+  return changed;
+}
+
+function runQuickUpdate(text) {
+  const parsed = parseQuickUpdate(text);
+  const warnings = [...(parsed.warnings || [])];
+  const plan = parsed.operations.map(op => ({ op, matches: findQuickUpdateMatches(op) }));
+  plan.forEach((item, idx) => {
+    if (item.matches.length === 0) warnings.push(`Update block ${idx + 1}: no matching events for ${summarizeMatchers(item.op.matchers)}`);
+  });
+
+  const totalMatches = plan.reduce((sum, item) => sum + item.matches.length, 0);
+  if (totalMatches === 0) {
+    return { updated: 0, errors: parsed.errors, warnings };
+  }
+
+  const preview = plan
+    .filter(item => item.matches.length)
+    .map((item, idx) => {
+      const titles = item.matches.slice(0, 5).map(ev => `• ${ev.title}`).join('\n');
+      const more = item.matches.length > 5 ? `\n• ...and ${item.matches.length - 5} more` : '';
+      return `Block ${idx + 1}: ${summarizeMatchers(item.op.matchers)}\n${titles}${more}`;
+    })
+    .join('\n\n');
+
+  if (!confirm(`Quick Update will modify ${totalMatches} event(s):\n\n${preview}\n\nApply changes?`)) {
+    return { updated: 0, errors: [], warnings: ['Quick Update cancelled'] };
+  }
+
+  let updated = 0;
+  plan.forEach(item => { updated += applyQuickUpdateOperation(item.op, item.matches); });
+  return { updated, errors: parsed.errors, warnings };
+}
+
 document.getElementById('btn-quick-add').addEventListener('click', () => {
   document.getElementById('quickadd-feedback').textContent = '';
   quickaddDialog.showModal();
@@ -182,6 +362,10 @@ document.getElementById('btn-quickadd-cancel').addEventListener('click', () => q
 
 document.getElementById('btn-quickadd-spec').addEventListener('click', () => {
   document.getElementById('quickadd-text').value = EXAMPLE_FORMULA;
+});
+
+document.getElementById('btn-quickupdate-spec').addEventListener('click', () => {
+  document.getElementById('quickadd-text').value = UPDATE_FORMULA;
 });
 
 document.getElementById('btn-quickadd-prompt').addEventListener('click', async () => {
@@ -202,6 +386,26 @@ document.getElementById('btn-quickadd-prompt').addEventListener('click', async (
 document.getElementById('btn-quickadd-parse').addEventListener('click', () => {
   const text = document.getElementById('quickadd-text').value;
   const feedback = document.getElementById('quickadd-feedback');
+
+  if (looksLikeQuickUpdate(text)) {
+    const { updated, errors, warnings } = runQuickUpdate(text);
+    if (updated === 0 && errors.length) {
+      feedback.style.color = '#e74c3c';
+      feedback.textContent = '⚠ ' + errors.join(' | ');
+      return;
+    }
+    refreshAll();
+    const notes = [...errors, ...warnings];
+    if (notes.length) {
+      feedback.style.color = '#f39c12';
+      feedback.textContent = `Updated ${updated} event(s). ${notes.join(' | ')}`;
+    } else {
+      feedback.style.color = '#27ae60';
+      feedback.textContent = `Updated ${updated} event(s).`;
+    }
+    return;
+  }
+
   const { added, errors, warnings } = addEventsFromFormula(text);
   if (added === 0 && errors.length) {
     feedback.style.color = '#e74c3c';
@@ -700,7 +904,11 @@ document.getElementById('btn-bulk-cancel').addEventListener('click', () => {
 const THEME_KEY = 'chronizo-theme';
 function applyTheme(theme) {
   const t = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
   document.body.dataset.theme = t;
+  document.body.classList.toggle('theme-light', t === 'light');
+  document.body.classList.toggle('theme-dark', t === 'dark');
+  document.getElementById('theme-toggle').textContent = t === 'light' ? '☀ Light' : '🌙 Dark';
   renderer.setTheme(t);
 }
 document.getElementById('theme-toggle').addEventListener('click', () => {

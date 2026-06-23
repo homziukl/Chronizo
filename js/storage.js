@@ -174,7 +174,8 @@ function normalizeEvent(ev = {}, index = 0) {
     appearance: {
       icon: ev.appearance?.icon || '',
       background: ev.appearance?.background || ''
-    }
+    },
+    updateHistory: Array.isArray(ev.updateHistory) ? ev.updateHistory : []
   };
 }
 

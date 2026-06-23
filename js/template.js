@@ -44,6 +44,28 @@ export const EXAMPLE_FORMULA = [
   'seg: timetravel @1453 new "Jump back to the siege"',
 ].join('\n');
 
+
+
+// Quick Update changes existing events instead of adding new ones. It is used
+// when a later episode/issue confirms a date or other metadata for events that
+// were initially placed by release date or speculation.
+export const UPDATE_FORMULA = [
+  'mode: update',
+  'match: tag=OET-test',
+  'date: 2012-05',
+  'evidence: mentioned',
+  'add_tags: date-confirmed',
+  'remove_tags: date-inferred',
+  'append_reasoning: Later media confirmed the chronology; date corrected from release-based placement.',
+  '---',
+  'mode: update',
+  'match: media=Example Series S01E01',
+  'match: tag=opening-scene',
+  'date: 1999-07-16',
+  'source: Example Series S01E03 dialogue',
+  'reasoning: Episode 3 gives the exact day; this updates the earlier approximate placement.'
+].join('\n');
+
 // Ready-to-copy instruction prompt for any AI. It explains what Chronizo is,
 // the Path A workflow (the AI infers the date from clues in a free-form
 // description and returns a ready-to-paste block), the full Quick Add syntax,
@@ -119,7 +141,18 @@ SEGMENTS (key \`seg\`)
 - "label" — the segment description in quotes.
 - Multiple segments = multiple \`seg:\` lines in the same block.
 
-COMPLETE EXAMPLE FORMULA (two events)
+QUICK UPDATE / BATCH UPDATE
+- Chronizo also supports updating existing events from the same box.
+- Use this only when the user wants to correct existing events, not add new ones.
+- Every update block must contain one or more match rules and at least one changed field.
+- Match examples: `match: tag=TVA-arc`, `match: media=Loki S01E01`, `match: title=Opening scene`, `match: source=Action Comics #1`, `match: universe=DC Earth-2`.
+- Matching rules inside one block are combined with AND.
+- Update examples: `date: 1938-04-18`, `evidence: mentioned`, `add_tags: date-confirmed`, `remove_tags: date-inferred`, `append_reasoning: Later issue confirms the date`.
+
+COMPLETE ADD EXAMPLE FORMULA (two events)
 ${EXAMPLE_FORMULA}
+
+COMPLETE UPDATE EXAMPLE FORMULA
+${UPDATE_FORMULA}
 
 Return ONLY the formula in the format above, with no preamble.`;

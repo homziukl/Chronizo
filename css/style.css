@@ -21,13 +21,18 @@
   --accent-red: #e74c3c;
   --accent-green: #27ae60;
   --glow-orange: rgba(255, 107, 0, 0.3);
+  --bg-minimap: rgba(10, 10, 15, 0.85);
+  --dialog-backdrop: rgba(0, 0, 0, 0.7);
+  color-scheme: dark;
   --font-mono: 'Share Tech Mono', monospace;
   --font-display: 'Orbitron', sans-serif;
 }
 
 /* Light theme — toggled via body[data-theme="light"] (JS wiring in task 10.2).
    Labels and values become black (Req 13.2); backgrounds/borders lighten. */
-body[data-theme="light"] {
+:root[data-theme="light"],
+body[data-theme="light"],
+body.theme-light {
   --bg-dark: #eceaf0;
   --bg-panel: #ffffff;
   --bg-input: #f2f1f6;
@@ -38,6 +43,9 @@ body[data-theme="light"] {
   --text-value: #000000;      /* values: black in light theme (Req 13.2) */
   --accent-white: #1a1a1a;
   --glow-orange: rgba(255, 107, 0, 0.25);
+  --bg-minimap: rgba(255, 255, 255, 0.9);
+  --dialog-backdrop: rgba(0, 0, 0, 0.28);
+  color-scheme: light;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -269,7 +277,7 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
 }
 
 #universe-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--dialog-backdrop);
 }
 
 #universe-dialog h2 {
@@ -408,7 +416,7 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
   height: 100px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: rgba(10, 10, 15, 0.85);
+  background: var(--bg-minimap);
   pointer-events: none;
   z-index: 15;
 }
@@ -423,7 +431,7 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
   min-width: 380px;
   box-shadow: 0 0 40px rgba(0,0,0,0.8);
 }
-#connection-dialog::backdrop { background: rgba(0,0,0,0.7); }
+#connection-dialog::backdrop { background: var(--dialog-backdrop); }
 #connection-dialog h2 {
   font-family: var(--font-display);
   font-size: 14px;
@@ -516,7 +524,7 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
   min-width: 400px;
   box-shadow: 0 0 40px rgba(0,0,0,0.8);
 }
-#bulk-edit-dialog::backdrop { background: rgba(0,0,0,0.7); }
+#bulk-edit-dialog::backdrop { background: var(--dialog-backdrop); }
 #bulk-edit-dialog h2 {
   font-family: var(--font-display);
   font-size: 14px;
@@ -564,3 +572,36 @@ button.danger:hover { background: var(--accent-red); color: #fff; }
   backdrop-filter: blur(4px);
 }
 #selection-banner button { font-size: 11px; padding: 3px 10px; }
+
+
+/* ===== Light-mode hardening ===== */
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea,
+body[data-theme="light"] input,
+body[data-theme="light"] select,
+body[data-theme="light"] textarea,
+body.theme-light input,
+body.theme-light select,
+body.theme-light textarea {
+  background: var(--bg-input);
+  color: var(--text-value);
+  border-color: var(--border);
+}
+
+:root[data-theme="light"] input::placeholder,
+:root[data-theme="light"] textarea::placeholder,
+body[data-theme="light"] input::placeholder,
+body[data-theme="light"] textarea::placeholder,
+body.theme-light input::placeholder,
+body.theme-light textarea::placeholder {
+  color: #555;
+  opacity: 1;
+}
+
+:root[data-theme="light"] dialog,
+body[data-theme="light"] dialog,
+body.theme-light dialog {
+  background: var(--bg-panel);
+  color: var(--text);
+}

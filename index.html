@@ -303,14 +303,15 @@
     <dialog id="quickadd-dialog">
       <h2>⚡ Quick Add — paste formula</h2>
       <p style="color:var(--text-dim);font-size:11px;margin-bottom:8px">
-        One <code>key: value</code> per line. Separate multiple events with a line containing only <code>---</code>.
-        Unrecognized keys are skipped with a warning. Put clues and uncertainty in <code>reasoning:</code>; keep the event block clean.
+        Add new events with <code>title:</code>, or update existing ones with <code>mode: update</code> + <code>match:</code>.
+        Separate blocks with a line containing only <code>---</code>. Unrecognized keys are skipped with a warning.
       </p>
-      <textarea id="quickadd-text" rows="14" placeholder="title: Action Comics #1 — Superman stops the car&#10;universe: DC Earth-2&#10;media: Action Comics #1&#10;date: 1938&#10;release: 1938-04-18&#10;type: comic&#10;characters: Superman, Lois Lane&#10;evidence: shown&#10;source: Action Comics #1, story A&#10;reasoning: Publication-based placement for OET; exact in-story date is not stated.&#10;tags: OET, Golden Age, Superman"></textarea>
+      <textarea id="quickadd-text" rows="14" placeholder="ADD:&#10;title: Action Comics #1 — Superman stops the car&#10;universe: DC Earth-2&#10;media: Action Comics #1&#10;date: 1938&#10;release: 1938-04-18&#10;type: comic&#10;tags: OET, Golden Age, Superman&#10;&#10;UPDATE:&#10;mode: update&#10;match: tag=Golden Age&#10;date: 1938-04-18&#10;evidence: mentioned&#10;add_tags: date-confirmed"></textarea>
       <div id="quickadd-feedback" style="font-size:11px;margin-top:6px;min-height:16px"></div>
       <div class="form-actions">
         <button id="btn-quickadd-parse">Add events</button>
-        <button id="btn-quickadd-spec" type="button">Show format</button>
+        <button id="btn-quickadd-spec" type="button">Show add format</button>
+        <button id="btn-quickupdate-spec" type="button">Show update format</button>
         <button id="btn-quickadd-prompt" type="button" title="Copy a ready-to-use prompt explaining the formula to any AI">📋 AI Prompt</button>
         <button id="btn-quickadd-cancel" type="button">Cancel</button>
       </div>
