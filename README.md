@@ -219,3 +219,8 @@ If the top menu is dead after deploying v3, update to v3.1. The v3 package misse
 If **nothing** in the top bar reacts — for example `+ Event`, `Quick Add`, and `Theme` all look clickable but do nothing — use v3.2 or newer.
 
 v3/v3.1 could fail during startup because the Quick Add AI prompt module contained unescaped backticks. That stopped `app.js` before button listeners were attached. v3.2 fixes the prompt and adds a full app-start smoke test.
+
+
+## v3.3 hotfix
+
+If GitHub Pages keeps an old broken module, this release cache-busts `app.js` and `template.js` and removes browser-fragile template literals from `template.js`.

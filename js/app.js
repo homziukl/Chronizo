@@ -6,7 +6,7 @@ import { createConnection } from './storage.js';
 import { TimelineRenderer } from './timeline.js';
 import { parseFormula, universeNameFromMedia } from './formula.js';
 import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js';
-import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js';
+import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.3';
 
 // ===== State =====
 let project = normalizeLoadedProject(loadFromLocalStorage() || createProject('Omniversal Event Tree'));

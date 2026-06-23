@@ -43,3 +43,11 @@ node -e "import('./js/template.js').then(() => console.log('template import ok')
 Result: OK.
 
 The v3.2 smoke-app-start test specifically catches the class of bug where `app.js` dies during module import and the top menu becomes clickable-looking but inert.
+
+
+## v3.3
+
+- `node --check js/template.js` passes.
+- `node --check js/app.js` passes.
+- `template.js` has no exported template literal for `AI_PROMPT`; prompt is built from safe string array.
+- `index.html` uses `js/app.js?v=3.3`; `app.js` imports `template.js?v=3.3`.

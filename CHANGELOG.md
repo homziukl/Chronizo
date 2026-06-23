@@ -1,3 +1,10 @@
+
+## v3.3 — hard cache/syntax hotfix
+
+- Rebuilt `js/template.js` without a JavaScript template literal so embedded documentation backticks cannot break browser parsing.
+- Added cache-busting query strings for GitHub Pages: `index.html` now loads `js/app.js?v=3.3`, and `app.js` imports `template.js?v=3.3`.
+- Target fix: `Uncaught SyntaxError: unexpected token: identifier template.js:148:20`.
+
 # Chronizo OET — Changelog
 
 ## OET v3.2 — App startup hotfix
