@@ -1,12 +1,12 @@
 // app.js — Main application controller for Chronizo
 
-import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV, importFromCSV, normalizeLoadedProject } from './storage.js?v=3.9';
-import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createSubEvent } from './events.js?v=3.9';
-import { createConnection } from './storage.js?v=3.9';
-import { TimelineRenderer } from './timeline.js?v=3.9';
-import { parseFormula, universeNameFromMedia } from './formula.js?v=3.9';
-import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js?v=3.9';
-import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.9';
+import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV, importFromCSV, normalizeLoadedProject } from './storage.js?v=3.10';
+import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createSubEvent } from './events.js?v=3.10';
+import { createConnection } from './storage.js?v=3.10';
+import { TimelineRenderer } from './timeline.js?v=3.10';
+import { parseFormula, universeNameFromMedia } from './formula.js?v=3.10';
+import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js?v=3.10';
+import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.10';
 
 // ===== State =====
 let project = normalizeLoadedProject(loadFromLocalStorage() || createProject('Omniversal Event Tree'));
@@ -64,6 +64,7 @@ renderer.onReorder = () => persistProject();
 // ===== Helpers =====
 function refreshAll() {
   const settings = ensureSettings();
+  repairVolatileState('refresh');
   renderer.setProject(project);
   renderer.setCharacterThreadMode(settings.characterThreadMode || 'focused');
   renderer.setFocusedCharacter(settings.focusedCharacter || '');
@@ -117,6 +118,64 @@ function ensureSettings() {
     ...(project.settings || {})
   };
   return project.settings;
+}
+
+function actualEventIds() {
+  return new Set((project.events || []).map(ev => ev.id).filter(Boolean));
+}
+
+function closeDialogIfOpen(id) {
+  const dlg = document.getElementById(id);
+  if (dlg?.open) dlg.close();
+}
+
+function closeEventPanel() {
+  document.getElementById('side-panel')?.classList.add('hidden');
+}
+
+function repairVolatileState(reason = '') {
+  project.events = Array.isArray(project.events) ? project.events : [];
+  project.connections = Array.isArray(project.connections) ? project.connections : [];
+  const valid = actualEventIds();
+  let changed = false;
+
+  const beforeConnections = project.connections.length;
+  project.connections = project.connections.filter(conn => {
+    const source = conn.sourceEventId || conn.source || conn.from;
+    const target = conn.targetEventId || conn.target || conn.to;
+    return valid.has(source) && valid.has(target);
+  });
+  if (project.connections.length !== beforeConnections) changed = true;
+
+  if (editingEventId && !valid.has(editingEventId)) {
+    editingEventId = null;
+    closeEventPanel();
+    changed = true;
+  }
+
+  if (connectSourceId && !valid.has(connectSourceId)) {
+    connectMode = false;
+    connectSourceId = null;
+    document.getElementById('connect-banner')?.classList.add('hidden');
+    renderer.setConnectMode(false);
+    changed = true;
+  }
+
+  if (renderer?.pruneSelection) {
+    changed = renderer.pruneSelection(valid) || changed;
+  }
+
+  const ids = renderer?.getSelectedIds ? renderer.getSelectedIds() : [];
+  if (!ids.length) {
+    const bulk = document.getElementById('bulk-edit-dialog');
+    if (bulk?.open) {
+      bulk.close();
+      changed = true;
+    }
+  }
+
+  if (changed && reason) setStatus(`Repaired stale UI state after ${reason}.`, 'warn');
+  return changed;
 }
 
 function allCharacterNames() {
@@ -256,6 +315,9 @@ document.getElementById('btn-new').addEventListener('click', () => {
   if (!name) return;
   project = createProject(name);
   editingEventId = null;
+  connectMode = false;
+  connectSourceId = null;
+  renderer.clearSelection();
   refreshAll();
 });
 
@@ -565,8 +627,11 @@ document.getElementById('btn-quickadd-parse').addEventListener('click', () => {
 
 document.getElementById('btn-load').addEventListener('click', async () => {
   try {
-    project = await loadFromFile();
+    project = normalizeLoadedProject(await loadFromFile());
     editingEventId = null;
+    connectMode = false;
+    connectSourceId = null;
+    renderer.clearSelection();
     refreshAll();
   } catch (err) {
     if (err.message !== 'No file selected') alert('Error: ' + err.message);
@@ -578,7 +643,7 @@ document.getElementById('btn-add-event').addEventListener('click', () => openEve
 // ===== Merge =====
 document.getElementById('btn-merge').addEventListener('click', async () => {
   try {
-    const source = await loadFromFile();
+    const source = normalizeLoadedProject(await loadFromFile());
     mergeProjects(project, source);
     refreshAll();
     alert(`Merged "${source.meta.name}" — added ${source.events.length} events, ${source.universes.length} universes.`);
@@ -727,6 +792,9 @@ form.addEventListener('submit', (e) => {
   };
 
   if (!data.title) return;
+  if (editingEventId && !project.events.some(ev => ev.id === editingEventId)) {
+    editingEventId = null;
+  }
   if (editingEventId) updateEvent(project, editingEventId, data);
   else addEvent(project, data);
 
@@ -736,10 +804,16 @@ form.addEventListener('submit', (e) => {
 });
 
 document.getElementById('btn-delete-event').addEventListener('click', () => {
-  if (!editingEventId || !confirm('Delete this event?')) return;
+  if (!editingEventId) {
+    closeEventPanel();
+    repairVolatileState('stale delete panel');
+    return;
+  }
+  if (!confirm('Delete this event?')) return;
   deleteEvent(project, editingEventId);
-  panel.classList.add('hidden');
+  closeEventPanel();
   editingEventId = null;
+  repairVolatileState('event delete');
   refreshAll();
 });
 
@@ -1028,11 +1102,20 @@ document.getElementById('btn-bulk-apply').addEventListener('click', () => {
 });
 
 document.getElementById('btn-bulk-delete').addEventListener('click', () => {
-  const ids = renderer.getSelectedIds();
+  const valid = actualEventIds();
+  const ids = renderer.getSelectedIds().filter(id => valid.has(id));
+  if (!ids.length) {
+    document.getElementById('bulk-edit-dialog').close();
+    renderer.clearSelection();
+    repairVolatileState('empty bulk delete');
+    refreshAll();
+    return;
+  }
   if (!confirm(`Delete ${ids.length} events? This cannot be undone.`)) return;
   ids.forEach(id => deleteEvent(project, id));
   document.getElementById('bulk-edit-dialog').close();
   renderer.clearSelection();
+  repairVolatileState('bulk delete');
   refreshAll();
 });
 
@@ -1062,6 +1145,7 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 
 // ===== Init =====
 applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+repairVolatileState('startup');
 updateProjectLabel();
 populateUniverseSelects();
 populateFilterUniverse();

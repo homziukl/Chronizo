@@ -2,10 +2,10 @@
 // Full feature set: branches, sub-wires, evidence opacity, date ranges,
 // sub-events, minimap, connect mode, filtering
 
-import { sortEvents, characterThreads, matchQuery } from './sorting.js?v=3.8';
+import { sortEvents, characterThreads, matchQuery } from './sorting.js?v=3.10';
 import { getTimeValue, getTimeEndValue, hasDateRange, getLocationKey,
          getLocationString, EVIDENCE_LEVELS, isPositionedByRelease, isUntimed,
-         getAppearance } from './events.js?v=3.8';
+         getAppearance } from './events.js?v=3.10';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -1595,6 +1595,13 @@ export class TimelineRenderer {
       // not also open the event panel (Req 12).
       if (this._didDragBlock) { this._didDragBlock = false; return; }
       const hit = this._hitTest(e);
+      // Release-order media blocks are synthetic view objects, not real project
+      // events. Never put them into the bulk-selection set, otherwise later bulk
+      // delete/edit can leave a stale UI state. Open their info instead.
+      if (hit?.event?._releaseBlock && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+        this.onEventClick?.(hit.event);
+        return;
+      }
       if (e.ctrlKey || e.metaKey) {
         // Multi-select with Ctrl+click
         if (hit) {
@@ -1643,6 +1650,27 @@ export class TimelineRenderer {
   }
 
   getSelectedIds() { return [...this._selectedIds]; }
+
+  pruneSelection(validIds = new Set()) {
+    const valid = validIds instanceof Set ? validIds : new Set(validIds || []);
+    let changed = false;
+    for (const id of [...this._selectedIds]) {
+      if (!valid.has(id)) {
+        this._selectedIds.delete(id);
+        changed = true;
+      }
+    }
+    if (this._lastSelectedId && !valid.has(this._lastSelectedId)) {
+      this._lastSelectedId = null;
+      changed = true;
+    }
+    if (changed) {
+      this.render();
+      this.onSelectionChange?.(this.getSelectedIds());
+    }
+    return changed;
+  }
+
   clearSelection() { this._selectedIds.clear(); this._lastSelectedId = null; this.render(); this.onSelectionChange?.(this.getSelectedIds()); }
 
   // Reorder after a drag&drop (Req 12.1/12.3). Rebuilds the left-to-right visual

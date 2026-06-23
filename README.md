@@ -264,3 +264,10 @@ Chronizo v3.6 accepts multi-event blocks from AI output more safely:
 ### GitHub Pages cache note
 
 Chronizo OET v3.8 cache-busts all internal modules. After uploading a new version to GitHub Pages, use Ctrl+F5 once.
+
+
+## v3.10 note — stale delete/create lock repair
+
+If you delete older events while selections, connect mode, or release blocks are active, Chronizo now repairs stale UI state automatically. The app removes dead selected IDs and dead connections, closes empty bulk dialogs, and keeps `+ Event` / `Delete` usable.
+
+Release Order media blocks are display-only groups. They show the released medium and its child events, but they are not stored as real events and cannot be bulk-deleted as event IDs.

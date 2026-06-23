@@ -1,6 +1,6 @@
 // sorting.js — Multi-directional sorting engine
 
-import { getTimeValue, hasInUniverseDate } from './events.js?v=3.8';
+import { getTimeValue, hasInUniverseDate } from './events.js?v=3.10';
 
 // Registry of sort modes. Most entries are pairwise comparators consumed by
 // Array.prototype.sort. The 'mix' entry is a whole-list sorter (it must build
