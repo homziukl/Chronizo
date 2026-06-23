@@ -6,7 +6,7 @@ import { createConnection } from './storage.js';
 import { TimelineRenderer } from './timeline.js';
 import { parseFormula, universeNameFromMedia } from './formula.js';
 import { looksLikeQuickUpdate, parseQuickUpdate } from './quick_update.js';
-import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.5';
+import { EXAMPLE_FORMULA, UPDATE_FORMULA, AI_PROMPT } from './template.js?v=3.7';
 
 // ===== State =====
 let project = normalizeLoadedProject(loadFromLocalStorage() || createProject('Omniversal Event Tree'));
@@ -298,6 +298,19 @@ function addEventsFromFormula(text) {
     addEvent(project, data);
   });
   return { added: events.length, errors, warnings: warnings || [] };
+}
+
+function showReleaseBlockInfo(event) {
+  const children = event._releaseChildren || [];
+  const lines = children.slice(0, 24).map((child, i) => `${i + 1}. ${child.title}${child.date ? ' — ' + child.date : ''}`);
+  if (children.length > 24) lines.push(`…and ${children.length - 24} more`);
+  alert([
+    event.title,
+    `Release: ${event.releaseDate || 'unknown'}`,
+    '',
+    'In-story events inside this media block:',
+    lines.join('\n')
+  ].join('\n'));
 }
 
 
@@ -815,6 +828,10 @@ function collectSubEvents() {
 
 // ===== Canvas event callbacks =====
 renderer.onEventClick = (event) => {
+  if (event?._releaseBlock) {
+    showReleaseBlockInfo(event);
+    return;
+  }
   if (connectMode) {
     if (!connectSourceId) {
       connectSourceId = event.id;

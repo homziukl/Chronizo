@@ -72,3 +72,5 @@ node tests/smoke-app-start.mjs
 Result: OK.
 
 This test set verifies comma/semicolon list parsing and auto-repair of previously imported semicolon-separated character/tag strings.
+
+- smoke-release-blocks OK

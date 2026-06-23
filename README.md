@@ -242,3 +242,18 @@ If GitHub Pages keeps an old broken module, this release cache-busts `app.js` an
 ## v3.4 Quick Add tolerance
 
 Quick Add is more forgiving: repeated `title:` lines start new events even without `---`, and `notes:` / `description:` are accepted as aliases for `reasoning:`. Explicit `---` separators are still recommended.
+
+
+## OET v3.7 Release Blocks
+
+Release dates belong to the media item, not to every small in-story event. In **Release Order** mode Chronizo now groups all events from the same media item and release date into one synthetic release block, for example:
+
+```txt
+Gotham Pilot S01E01 — 2014-09-22
+  - Wayne murders
+  - Gordon begins investigation
+  - Mario Pepper pursuit
+  - Oswald survives outside Gotham
+```
+
+Use **In-Universe Chronology** for the detailed story timeline. Use **Release Order** to see when episodes/issues/films were released.

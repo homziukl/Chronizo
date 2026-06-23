@@ -137,9 +137,12 @@ export class TimelineRenderer {
     ctx.scale(this.zoom, this.zoom);
 
     this.MAIN_Y = h / (2 * this.zoom);
-    const events = this.filteredEvents || this.project.events;
+    const sourceEvents = this.filteredEvents || this.project.events;
+    const events = this._displayEventsForMode(sourceEvents);
+    this._sourceEvents = sourceEvents;
+    this._displayEvents = events;
     // Search highlight set (Req 10) — compute once per render. Empty query →
-    // null (no highlight); otherwise the set of matching event ids.
+    // null (no highlight); otherwise the set of matching display-event ids.
     if (this.searchQuery && this.searchQuery.trim()) {
       this._matched = matchQuery(events, this.searchQuery);
       this._lastMatchCount = this._matched.size;
@@ -173,6 +176,114 @@ export class TimelineRenderer {
     ctx.restore();
     this._drawLegend(layout);
     this._drawMinimap(layout);
+  }
+
+  _displayEventsForMode(events) {
+    if (this.sortMode !== 'release') return events;
+    return this._buildReleaseMediaBlocks(events);
+  }
+
+  _buildReleaseMediaBlocks(events) {
+    const groups = new Map();
+    for (const ev of events || []) {
+      const release = String(ev.releaseDate || '').trim() || 'No release date';
+      const mediaTitle = this._cleanMediaLabel(ev.media?.title || ev.source || 'Unknown medium');
+      const episode = this._cleanMediaLabel(ev.media?.episode || '');
+      const mediaType = String(ev.media?.type || '').trim();
+      const universe = ev.universe || 'main';
+      const key = [release, universe, mediaType, mediaTitle.toLowerCase(), episode.toLowerCase()].join('|');
+      if (!groups.has(key)) groups.set(key, { release, universe, mediaType, mediaTitle, episode, events: [] });
+      groups.get(key).events.push(ev);
+    }
+
+    return [...groups.values()].map((g, i) => {
+      const title = this._releaseBlockTitle(g);
+      const childTitles = g.events.map(ev => ev.title || '(untitled)');
+      const characters = this._unionList(g.events.flatMap(ev => Array.isArray(ev.characters) ? ev.characters : []));
+      const tags = this._unionList(g.events.flatMap(ev => Array.isArray(ev.tags) ? ev.tags : []));
+      const evidence = this._strongestEvidence(g.events.map(ev => ev.evidence));
+      return {
+        id: 'release-block:' + this._stableHash([g.release, g.universe, g.mediaType, g.mediaTitle, g.episode, i].join('|')),
+        title,
+        universe: g.universe,
+        speculativeUniverse: '',
+        date: { exact: null, approximate: '', rangeFrom: '', rangeTo: '', season: '', era: '' },
+        releaseDate: g.release === 'No release date' ? '' : g.release,
+        source: '',
+        reasoning: `Release block for ${title}. Contains ${g.events.length} in-story event(s).`,
+        evidence,
+        tags: this._unionList(['release-block', ...tags]),
+        sortOrder: { custom: i * 10 },
+        location: { realm: '', planet: '', region: '', place: '' },
+        media: { type: g.mediaType, title: g.mediaTitle, episode: g.episode },
+        subEvents: [],
+        characters,
+        appearance: { icon: this._mediaIcon(g.mediaType), background: '' },
+        _releaseBlock: true,
+        _releaseChildren: g.events.map(ev => ({
+          id: ev.id,
+          title: ev.title || '(untitled)',
+          date: this._formatDate(ev),
+          evidence: ev.evidence || 'shown',
+          characters: Array.isArray(ev.characters) ? ev.characters : []
+        })),
+        _releaseChildIds: g.events.map(ev => ev.id),
+        _releaseChildTitles: childTitles
+      };
+    });
+  }
+
+  _releaseBlockTitle(group) {
+    const base = group.mediaTitle || 'Unknown medium';
+    const ep = group.episode || '';
+    if (ep && !base.toLowerCase().includes(ep.toLowerCase())) return `${base} ${ep}`.replace(/\s+/g, ' ').trim();
+    return base.replace(/\s+/g, ' ').trim();
+  }
+
+  _cleanMediaLabel(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  _mediaIcon(type) {
+    const t = String(type || '').toLowerCase();
+    if (t.includes('series') || t.includes('tv')) return '📺';
+    if (t.includes('film') || t.includes('movie')) return '🎬';
+    if (t.includes('comic')) return '📖';
+    if (t.includes('game')) return '🎮';
+    if (t.includes('book')) return '📚';
+    return '🎞';
+  }
+
+  _unionList(list) {
+    const out = [];
+    const seen = new Set();
+    for (const item of list || []) {
+      const value = String(item || '').trim();
+      const key = value.toLowerCase();
+      if (!value || seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+    return out;
+  }
+
+  _stableHash(value) {
+    let h = 2166136261;
+    const s = String(value || '');
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  }
+
+  _strongestEvidence(values) {
+    const order = ['shown', 'described', 'mentioned', 'implied', 'speculated'];
+    let best = 'speculated';
+    for (const v of values || []) {
+      if (order.indexOf(v) >= 0 && order.indexOf(v) < order.indexOf(best)) best = v;
+    }
+    return best;
   }
 
   // ===== LAYOUT =====
@@ -769,7 +880,7 @@ export class TimelineRenderer {
     if (this.characterThreadMode === 'off') return;
 
     const ctx = this.ctx;
-    const events = this.filteredEvents || this.project.events;
+    const events = this._displayEvents || this._displayEventsForMode(this.filteredEvents || this.project.events);
     const threads = characterThreads(events, this.sortMode);
     const posById = new Map(this.eventPositions.map(ep => [ep.id, ep]));
     const focus = String(this.focusedCharacter || '').trim().toLowerCase();
@@ -907,6 +1018,13 @@ export class TimelineRenderer {
     });
   }
 
+
+  _isMatchedEvent(ev) {
+    if (!this._matched) return true;
+    if (this._matched.has(ev.id)) return true;
+    return !!(ev._releaseChildIds && ev._releaseChildIds.some(id => this._matched.has(id)));
+  }
+
   // ===== EVENT BLOCKS (cards) =====
   // Renders an event as a card/block with its title (Req 7.1), an optional icon
   // next to the title and an optional background, both from appearance
@@ -922,7 +1040,7 @@ export class TimelineRenderer {
     let alpha = ep.opacity || 1;
     // Search dimming (Req 10.3): with an active query, non-matching blocks are
     // dimmed so the matching path stands out; matching blocks keep full alpha.
-    const isMatch = !this._matched || this._matched.has(ep.id);
+    const isMatch = !this._matched || this._isMatchedEvent(ev);
     if (!isMatch) alpha *= 0.2;
     const focusActive = !!(this.focusedCharacter && this._focusedIds);
     if (focusActive && !this._focusedIds.has(ep.id)) alpha *= this.performanceMode ? 0.22 : 0.38;
@@ -981,7 +1099,7 @@ export class TimelineRenderer {
     ep.block = { x: bx, y: by, w: bw, h: bh };
 
     // ===== Release-positioning marker (Req 5.2) =====
-    if (isPositionedByRelease(ev)) {
+    if (!ev._releaseBlock && isPositionedByRelease(ev)) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, alpha + 0.2);
       ctx.fillStyle = ep.color;
@@ -993,7 +1111,7 @@ export class TimelineRenderer {
     }
 
     // ===== No-time-source marker (Req 5.3) =====
-    if (isUntimed(ev)) {
+    if (!ev._releaseBlock && isUntimed(ev)) {
       ctx.save();
       ctx.globalAlpha = 0.9;
       ctx.fillStyle = '#a0a0ae';
@@ -1005,12 +1123,13 @@ export class TimelineRenderer {
     }
 
     // ===== Sub-event count badge =====
-    if (ev.subEvents?.length > 0) {
+    const childCount = ev._releaseBlock ? (ev._releaseChildren?.length || 0) : (ev.subEvents?.length || 0);
+    if (childCount > 0) {
       ctx.save();
-      ctx.fillStyle = ep.color; ctx.globalAlpha = 0.7;
+      ctx.fillStyle = ep.color; ctx.globalAlpha = 0.82;
       ctx.font = '8px "Share Tech Mono",monospace'; ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`+${ev.subEvents.length}`, bx + bw + 8, by + bh);
+      ctx.fillText(ev._releaseBlock ? `${childCount} events` : `+${childCount}`, bx + bw + (ev._releaseBlock ? 24 : 8), by + bh);
       ctx.restore();
     }
   }
@@ -1322,6 +1441,7 @@ export class TimelineRenderer {
   }
 
   _formatDate(ev) {
+    if ((this.sortMode === 'release' || ev._releaseBlock) && ev.releaseDate) return ev.releaseDate;
     if (ev.date.exact) return ev.date.exact;
     if (ev.date.rangeFrom && ev.date.rangeTo) return `${ev.date.rangeFrom} — ${ev.date.rangeTo}`;
     if (ev.date.rangeFrom) return `${ev.date.rangeFrom} —`;
@@ -1537,6 +1657,26 @@ export class TimelineRenderer {
     const evi = EVIDENCE_LEVELS[ev.evidence] || EVIDENCE_LEVELS.shown;
 
     let h = `<div class="tt-title">${escapeHtml(ev.title)}</div>`;
+    if (ev._releaseBlock) {
+      h += `<span class="tt-evidence shown">📦 Release block</span>`;
+      h += `<div class="tt-meta">${escapeHtml(ep.universe.name)}</div>`;
+      if (ev.releaseDate) h += `<div class="tt-meta">📅 Release: ${escapeHtml(ev.releaseDate)}</div>`;
+      if (ev.media?.title) h += `<div class="tt-meta">🎬 ${escapeHtml(ev.media.title)} ${escapeHtml(ev.media.episode || '')}</div>`;
+      h += `<div class="tt-meta">Contains ${ev._releaseChildren?.length || 0} in-story event(s)</div>`;
+      (ev._releaseChildren || []).slice(0, 18).forEach(child => {
+        const d = child.date ? ` — ${escapeHtml(child.date)}` : '';
+        h += `<div class="tt-sub">• ${escapeHtml(child.title)}${d}</div>`;
+      });
+      if ((ev._releaseChildren || []).length > 18) h += `<div class="tt-sub">…and ${(ev._releaseChildren || []).length - 18} more</div>`;
+      tt.innerHTML = h;
+      tt.classList.remove('hidden');
+      const vp = this.canvas.parentElement.getBoundingClientRect();
+      let x = cx - vp.left + 16, y = cy - vp.top - 10;
+      if (x + 360 > vp.width) x = cx - vp.left - 370;
+      if (y + 220 > vp.height) y = vp.height - 230;
+      tt.style.left = x + 'px'; tt.style.top = y + 'px';
+      return;
+    }
     h += `<span class="tt-evidence ${ev.evidence || 'shown'}">${evi.label}</span>`;
     h += `<div class="tt-meta">${escapeHtml(ep.universe.name)}</div>`;
     if (ev.speculativeUniverse) {

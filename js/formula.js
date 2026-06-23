@@ -50,6 +50,7 @@ const EPISODE_RE = /(S\d{1,2}E\d{1,3}|#\d+|odc\.?\s*\d+|ep\.?\s*\d+)/i;
 export function parseFormula(text) {
   const errors = [];
   const warnings = [];
+  text = normalizeFormulaText(text);
   if (!text || !text.trim()) return { events: [], errors: ['Empty formula'], warnings };
 
   const blocks = splitBlocks(text);
@@ -71,6 +72,67 @@ export function parseFormula(text) {
   return { events, errors, warnings };
 }
 
+
+// Normalize text copied from ChatGPT, Markdown, writing blocks, emails, etc.
+// It strips code fences / writing-block fences and removes leading bullet marks
+// before key:value lines. This makes Quick Add tolerant of real pasted AI output.
+function normalizeFormulaText(text) {
+  return String(text ?? '')
+    .replace(/\uFEFF/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .filter(line => !/^\s*```/.test(line))
+    .filter(line => !/^\s*:::/i.test(line))
+    .map(cleanKeyLine)
+    .join('\n');
+}
+
+function cleanKeyLine(line) {
+  // Convert Markdown list items like "- title: ..." into "title: ...".
+  return String(line ?? '').replace(/^\s*[-*•]\s+(?=[^:]{1,80}\s*:)/, '');
+}
+
+function normalizeKey(key) {
+  const k = String(key || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[łŁ]/g, 'l')
+    .replace(/[\s_-]+/g, '_');
+  const aliases = {
+    tytul: 'title', title: 'title', name: 'title', nazwa: 'title',
+    uniwersum: 'universe', universe: 'universe', timeline: 'universe',
+    speculative_universe: 'speculative', speculative: 'speculative',
+    medium: 'media', media: 'media', episode_source: 'media',
+    odcinek: 'episode', episode: 'episode',
+    typ: 'type', type: 'type', media_type: 'media_type',
+    data: 'date', date: 'date', kiedy: 'date',
+    od: 'from', from: 'from', do: 'to', to: 'to',
+    sezon: 'season', season: 'season', era: 'era',
+    release: 'release', release_date: 'release', airdate: 'release', air_date: 'release', emisja: 'release', wydanie: 'release',
+    dowod: 'evidence', evidence: 'evidence', pewnosc: 'evidence',
+    zrodlo: 'source', source: 'source',
+    reasoning: 'reasoning', uzasadnienie: 'reasoning', powod: 'reasoning',
+    note: 'note', notes: 'notes', notatka: 'notes', notatki: 'notes', opis: 'description', description: 'description',
+    tag: 'tags', tagi: 'tags', tags: 'tags',
+    postacie: 'characters', postac: 'characters', character: 'characters', characters: 'characters',
+    realm: 'realm', planet: 'planet', region: 'region', miejsce: 'place', place: 'place', location: 'location', lokalizacja: 'location',
+    sort: 'sort', kolejnosc: 'sort',
+    seg: 'seg', segment: 'seg', subevent: 'seg',
+    icon: 'icon', ikona: 'icon', background: 'background', tlo: 'background'
+  };
+  return aliases[k] || k;
+}
+
+function isTitleLine(line) {
+  const cleaned = cleanKeyLine(line).trim();
+  const idx = cleaned.indexOf(':');
+  if (idx === -1) return false;
+  return normalizeKey(cleaned.slice(0, idx)) === 'title';
+}
+
 // Split on lines that contain only a separator: --- or ===.
 // OET usability guard: a repeated top-level `title:` also starts a new block.
 // This makes AI-generated multi-event output safer even when the separator line
@@ -89,7 +151,7 @@ function splitBlocks(text) {
       return;
     }
 
-    if (/^title\s*:/i.test(trimmed) && currentHasTitle && current.some(l => l.trim())) {
+    if (isTitleLine(trimmed) && currentHasTitle && current.some(l => l.trim())) {
       blocks.push(current);
       current = [line];
       currentHasTitle = true;
@@ -97,7 +159,7 @@ function splitBlocks(text) {
     }
 
     current.push(line);
-    if (/^title\s*:/i.test(trimmed)) currentHasTitle = true;
+    if (isTitleLine(trimmed)) currentHasTitle = true;
   });
   blocks.push(current);
   return blocks.filter(b => b.some(l => l.trim()));
@@ -124,11 +186,11 @@ function parseBlock(lines, blockNumber, warnings) {
   let any = false;
 
   for (const raw of lines) {
-    const line = stripComment(raw).trim();
+    const line = stripComment(cleanKeyLine(raw)).trim();
     if (!line) continue;
     const idx = line.indexOf(':');
     if (idx === -1) continue;
-    const key = line.slice(0, idx).trim().toLowerCase();
+    const key = normalizeKey(line.slice(0, idx).trim());
     const value = line.slice(idx + 1).trim();
     if (!key) continue;
     any = true;
@@ -166,7 +228,7 @@ function applyField(data, key, value, blockNumber, warnings) {
       const ep = value.match(EPISODE_RE);
       if (ep) {
         data.media.episode = ep[0];
-        data.media.title = value.replace(EPISODE_RE, '').replace(/[–—-]\s*$/, '').trim();
+        data.media.title = value.replace(EPISODE_RE, '').replace(/[–—-]\s*$/, '').replace(/\s+/g, ' ').trim();
       } else {
         data.media.title = value;
       }

@@ -1,3 +1,14 @@
+# Chronizo OET v3.7 — Release Media Blocks
+
+- Release Order view now groups micro-events by their media item/release date.
+- One release card is shown for e.g. `Gotham Pilot S01E01` on `2014-09-22` instead of repeating every in-story event on the release axis.
+- The release block tooltip lists the in-story events inside that episode/issue/film.
+- Clicking a release block opens a simple list instead of editing a synthetic event.
+- Character focus remains available in release mode by using the union of characters inside the media block.
+- Quick Add now normalizes extra spaces when extracting `S01E01` from `media:`.
+- Cache-busting updated to `v=3.7`.
+- Added `tests/smoke-release-blocks.mjs`.
+
 # Chronizo OET v3.5
 
 - Quick Add now accepts both comma and semicolon separators for `characters:` and `tags:`.

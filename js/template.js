@@ -152,10 +152,10 @@ const AI_PROMPT_LINES = [
   "- Update examples: \\`date: 1938-04-18\\`, \\`evidence: mentioned\\`, \\`add_tags: date-confirmed\\`, \\`remove_tags: date-inferred\\`, \\`append_reasoning: Later issue confirms the date\\`.",
   "",
   "COMPLETE ADD EXAMPLE FORMULA (two events)",
-  ...EXAMPLE_FORMULA,
+  EXAMPLE_FORMULA,
   "",
   "COMPLETE UPDATE EXAMPLE FORMULA",
-  ...UPDATE_FORMULA,
+  UPDATE_FORMULA,
   "",
   "Return ONLY the formula in the format above, with no preamble.",
 ];
