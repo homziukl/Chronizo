@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chronizo — Timeline Builder</title>
+  <title>Chronizo — Omniversal Timeline Builder</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -18,6 +18,7 @@
       <div class="topbar-right">
         <button id="btn-new" title="New project">✦ New</button>
         <button id="btn-load" title="Load JSON file">⟐ Load</button>
+        <button id="btn-csv-import" title="Import CSV file">📊 CSV↑</button>
         <button id="btn-merge" title="Merge another timeline into current">⊕ Merge</button>
         <button id="btn-save" title="Save as JSON">⟑ Save</button>
         <button id="btn-csv-export" title="Export to CSV (backup / Excel)">📊 CSV↓</button>
@@ -31,6 +32,7 @@
           <option value="in-universe">In-Universe Chronology</option>
           <option value="release">Release Order</option>
           <option value="mix">Mixed (chronology + release)</option>
+          <option value="custom">Custom / manual order</option>
         </select>
         <input type="text" id="search-box" placeholder="🔍 Search..." class="search-input">
         <select id="filter-universe" title="Filter by universe">
@@ -62,7 +64,7 @@
       <canvas id="minimap"></canvas>
       <!-- Selection banner -->
       <div id="selection-banner" class="hidden">
-        <span id="sel-count">0</span> events selected (Ctrl+click to add)
+        <span id="sel-count">0</span> events selected (Ctrl+click to add, Shift+click for range)
         <button id="btn-bulk-edit">✏ Bulk Edit</button>
         <button id="btn-clear-selection">Clear</button>
       </div>
@@ -302,9 +304,9 @@
       <h2>⚡ Quick Add — paste formula</h2>
       <p style="color:var(--text-dim);font-size:11px;margin-bottom:8px">
         One <code>key: value</code> per line. Separate multiple events with a line containing only <code>---</code>.
-        Unrecognized keys are skipped with a warning — clues belong in the free-form description you give to the AI, not in the event block. Date should already be resolved.
+        Unrecognized keys are skipped with a warning. Put clues and uncertainty in <code>reasoning:</code>; keep the event block clean.
       </p>
-      <textarea id="quickadd-text" rows="14" placeholder="title: Battle of the Forest&#10;universe: The Witcher&#10;media: The Witcher S01E05&#10;date: 1267&#10;season: winter&#10;characters: Geralt, Ciri&#10;evidence: shown&#10;moon: full&#10;reasoning: dated from full moon near release&#10;seg: flashback @1257 &quot;Ciri's childhood&quot;&#10;---&#10;title: Next event&#10;date: 2019-04-26"></textarea>
+      <textarea id="quickadd-text" rows="14" placeholder="title: Action Comics #1 — Superman stops the car&#10;universe: DC Earth-2&#10;media: Action Comics #1&#10;date: 1938&#10;release: 1938-04-18&#10;type: comic&#10;characters: Superman, Lois Lane&#10;evidence: shown&#10;source: Action Comics #1, story A&#10;reasoning: Publication-based placement for OET; exact in-story date is not stated.&#10;tags: OET, Golden Age, Superman"></textarea>
       <div id="quickadd-feedback" style="font-size:11px;margin-top:6px;min-height:16px"></div>
       <div class="form-actions">
         <button id="btn-quickadd-parse">Add events</button>

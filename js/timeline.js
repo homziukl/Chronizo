@@ -7,6 +7,15 @@ import { getTimeValue, getTimeEndValue, hasDateRange, getLocationKey,
          getLocationString, EVIDENCE_LEVELS, isPositionedByRelease, isUntimed,
          getAppearance } from './events.js';
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export class TimelineRenderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -29,6 +38,7 @@ export class TimelineRenderer {
     this.searchQuery = '';
     this._matched = null;        // Set<eventId> of current matches (or null)
     this._lastMatchCount = 0;    // returned by setSearchQuery for the UI
+    this._lastSelectedId = null;
 
     this.offsetX = 100;
     this.offsetY = 0;
@@ -1359,12 +1369,23 @@ export class TimelineRenderer {
         if (hit) {
           if (this._selectedIds.has(hit.id)) this._selectedIds.delete(hit.id);
           else this._selectedIds.add(hit.id);
+          this._lastSelectedId = hit.id;
           this.render();
           this.onSelectionChange?.(this.getSelectedIds());
         }
       } else if (e.shiftKey && hit && this._selectedIds.size > 0) {
-        // Shift+click: select range (all events between last selected and this one)
-        this._selectedIds.add(hit.id);
+        // Shift+click: select visual range from the last anchor to this event.
+        const anchor = this._lastSelectedId || this.getSelectedIds().at(-1);
+        const ordered = this.eventPositions.slice().sort((a, b) => (a.block?.x ?? a.x) - (b.block?.x ?? b.x));
+        const a = ordered.findIndex(ep => ep.id === anchor);
+        const b = ordered.findIndex(ep => ep.id === hit.id);
+        if (a >= 0 && b >= 0) {
+          const [from, to] = a < b ? [a, b] : [b, a];
+          for (const ep of ordered.slice(from, to + 1)) this._selectedIds.add(ep.id);
+        } else {
+          this._selectedIds.add(hit.id);
+        }
+        this._lastSelectedId = hit.id;
         this.render();
         this.onSelectionChange?.(this.getSelectedIds());
       } else {
@@ -1372,6 +1393,7 @@ export class TimelineRenderer {
         if (hit) {
           if (this._selectedIds.size > 0) {
             this._selectedIds.clear();
+            this._lastSelectedId = null;
             this.render();
             this.onSelectionChange?.(this.getSelectedIds());
           }
@@ -1380,6 +1402,7 @@ export class TimelineRenderer {
           // Click on empty space — clear selection
           if (this._selectedIds.size > 0) {
             this._selectedIds.clear();
+            this._lastSelectedId = null;
             this.render();
             this.onSelectionChange?.(this.getSelectedIds());
           }
@@ -1389,7 +1412,7 @@ export class TimelineRenderer {
   }
 
   getSelectedIds() { return [...this._selectedIds]; }
-  clearSelection() { this._selectedIds.clear(); this.render(); }
+  clearSelection() { this._selectedIds.clear(); this._lastSelectedId = null; this.render(); this.onSelectionChange?.(this.getSelectedIds()); }
 
   // Reorder after a drag&drop (Req 12.1/12.3). Rebuilds the left-to-right visual
   // order, moves the dragged event to the slot matching its drop X, then
@@ -1463,12 +1486,12 @@ export class TimelineRenderer {
     const ev = ep.event;
     const evi = EVIDENCE_LEVELS[ev.evidence] || EVIDENCE_LEVELS.shown;
 
-    let h = `<div class="tt-title">${ev.title}</div>`;
+    let h = `<div class="tt-title">${escapeHtml(ev.title)}</div>`;
     h += `<span class="tt-evidence ${ev.evidence || 'shown'}">${evi.label}</span>`;
-    h += `<div class="tt-meta">${ep.universe.name}</div>`;
+    h += `<div class="tt-meta">${escapeHtml(ep.universe.name)}</div>`;
     if (ev.speculativeUniverse) {
       const su = this.project.universes.find(u => u.id === ev.speculativeUniverse);
-      h += `<div class="tt-meta">→ ${su?.name || ev.speculativeUniverse}</div>`;
+      h += `<div class="tt-meta">→ ${escapeHtml(su?.name || ev.speculativeUniverse)}</div>`;
     }
     const d = this._formatDate(ev);
     if (d) h += `<div class="tt-meta">📅 ${d}</div>`;
@@ -1476,14 +1499,14 @@ export class TimelineRenderer {
     // in-universe date is placed at its releaseDate — communicate that the
     // position is approximate and derived from the release date.
     if (isPositionedByRelease(ev)) {
-      h += `<div class="tt-meta">≈ Pozycja przybliżona — wg daty wydania (${ev.releaseDate})</div>`;
+      h += `<div class="tt-meta">≈ Pozycja przybliżona — wg daty wydania (${escapeHtml(ev.releaseDate)})</div>`;
     }
     const loc = getLocationString(ev);
-    if (loc) h += `<div class="tt-meta">📍 ${loc}</div>`;
-    if (ev.media?.title) h += `<div class="tt-meta">🎬 ${ev.media.title} ${ev.media.episode || ''}</div>`;
-    if (ev.source) h += `<div class="tt-meta">📖 ${ev.source}</div>`;
-    if (ev.characters?.length) h += `<div class="tt-meta">👤 ${ev.characters.join(', ')}</div>`;
-    if (ev.reasoning) h += `<div class="tt-reasoning">"${ev.reasoning}"</div>`;
+    if (loc) h += `<div class="tt-meta">📍 ${escapeHtml(loc)}</div>`;
+    if (ev.media?.title) h += `<div class="tt-meta">🎬 ${escapeHtml(ev.media.title)} ${escapeHtml(ev.media.episode || '')}</div>`;
+    if (ev.source) h += `<div class="tt-meta">📖 ${escapeHtml(ev.source)}</div>`;
+    if (ev.characters?.length) h += `<div class="tt-meta">👤 ${escapeHtml(ev.characters.join(', '))}</div>`;
+    if (ev.reasoning) h += `<div class="tt-reasoning">"${escapeHtml(ev.reasoning)}"</div>`;
 
     // Sub-events
     if (ev.subEvents?.length > 0) {
@@ -1493,7 +1516,7 @@ export class TimelineRenderer {
         if (s.type === 'timetravel') {
           extra = s.timeTravelMode === 'new-universe' ? ' 🌀 New Universe' : ' 🔄 Same Universe';
         }
-        h += `<div class="tt-sub">${icons[s.type] || '•'} ${s.label || s.type} ${s.date?.approximate ? '(' + s.date.approximate + ')' : ''}${extra}</div>`;
+        h += `<div class="tt-sub">${icons[s.type] || '•'} ${escapeHtml(s.label || s.type)} ${s.date?.approximate ? '(' + escapeHtml(s.date.approximate) + ')' : ''}${extra}</div>`;
       });
     }
 

@@ -150,6 +150,8 @@ function applyField(data, key, value, blockNumber, warnings) {
       break;
     }
     case 'episode': data.media.episode = value; break;
+    case 'type':
+    case 'media_type': data.media.type = value.toLowerCase(); break;
     case 'date':
       if (ISO_DATE.test(value)) data.date.exact = value;
       else data.date.approximate = value;

@@ -23,6 +23,7 @@ export const EXAMPLE_FORMULA = [
   'season: summer',
   'characters: Captain Mara, Scout Iven',
   'evidence: shown',
+  'type: series',
   'source: Borderland Chronicles, episode 2x07',
   'reasoning: Date inferred by the AI from a full moon and high summer',
   'tags: battle, siege',

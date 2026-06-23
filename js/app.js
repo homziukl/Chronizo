@@ -1,6 +1,6 @@
 // app.js — Main application controller for Chronizo
 
-import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV } from './storage.js';
+import { createProject, saveToFile, loadFromFile, saveToLocalStorage, loadFromLocalStorage, mergeProjects, exportToCSV, importFromCSV, normalizeLoadedProject } from './storage.js';
 import { addEvent, updateEvent, deleteEvent, addUniverse, deleteUniverse, createSubEvent } from './events.js';
 import { createConnection } from './storage.js';
 import { TimelineRenderer } from './timeline.js';
@@ -8,10 +8,34 @@ import { parseFormula, universeNameFromMedia } from './formula.js';
 import { EXAMPLE_FORMULA, AI_PROMPT } from './template.js';
 
 // ===== State =====
-let project = loadFromLocalStorage() || createProject('My Timeline');
+let project = normalizeLoadedProject(loadFromLocalStorage() || createProject('Omniversal Event Tree'));
 let editingEventId = null;
 let connectMode = false;
 let connectSourceId = null;
+
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function setStatus(message, type = 'info') {
+  const el = document.getElementById('project-name');
+  if (!el) return;
+  el.title = message || '';
+  if (type === 'error') console.error(message);
+  else if (type === 'warn') console.warn(message);
+}
+
+function persistProject() {
+  const ok = saveToLocalStorage(project);
+  if (!ok) setStatus('Autosave failed — use Save to download a file backup.', 'warn');
+  return ok;
+}
 
 // ===== Renderer =====
 const canvas = document.getElementById('timeline-canvas');
@@ -19,11 +43,11 @@ const renderer = new TimelineRenderer(canvas);
 renderer.setProject(project);
 renderer.resize();
 window.addEventListener('resize', () => renderer.resize());
-setInterval(() => saveToLocalStorage(project), 30000);
+setInterval(() => persistProject(), 30000);
 
 // Persist the manual order right after a drag&drop reorder (Req 12.3). The
 // renderer has already mutated sortOrder.custom and repainted; we only save.
-renderer.onReorder = () => saveToLocalStorage(project);
+renderer.onReorder = () => persistProject();
 
 // ===== Helpers =====
 function refreshAll() {
@@ -31,7 +55,7 @@ function refreshAll() {
   updateProjectLabel();
   populateUniverseSelects();
   populateFilterUniverse();
-  saveToLocalStorage(project);
+  persistProject();
 }
 
 function updateProjectLabel() {
@@ -98,28 +122,10 @@ searchBox.addEventListener('input', () => {
 document.getElementById('filter-universe').addEventListener('change', applyFilters);
 document.getElementById('filter-evidence').addEventListener('change', applyFilters);
 
-// ===== Theme toggle (Req 13) =====
-// The canvas does not read CSS variables, so the renderer is told the theme
-// explicitly via setTheme(); the DOM UI follows body[data-theme].
-function applyTheme(theme) {
-  const t = theme === 'light' ? 'light' : 'dark';
-  document.body.dataset.theme = t;
-  renderer.setTheme(t);
-  try { localStorage.setItem('chronizo-theme', t); } catch { /* ignore */ }
-}
-
-document.getElementById('theme-toggle').addEventListener('click', () => {
-  const current = document.body.dataset.theme === 'light' ? 'light' : 'dark';
-  applyTheme(current === 'light' ? 'dark' : 'light');
-});
-
-// Restore the saved theme on startup (defaults to dark).
-applyTheme((() => {
-  try { return localStorage.getItem('chronizo-theme') || 'dark'; } catch { return 'dark'; }
-})());
+// ===== Top bar buttons =====
 document.getElementById('btn-new').addEventListener('click', () => {
   if (!confirm('Create new project? Unsaved changes will be lost.')) return;
-  const name = prompt('Project name:', 'My Timeline');
+  const name = prompt('Project name:', 'Omniversal Event Tree');
   if (!name) return;
   project = createProject(name);
   editingEventId = null;
@@ -130,6 +136,16 @@ document.getElementById('btn-save').addEventListener('click', () => saveToFile(p
 
 // CSV
 document.getElementById('btn-csv-export').addEventListener('click', () => exportToCSV(project));
+document.getElementById('btn-csv-import').addEventListener('click', async () => {
+  try {
+    const imported = await importFromCSV();
+    mergeProjects(project, imported);
+    refreshAll();
+    alert(`CSV imported — merged ${imported.events.length} event(s).`);
+  } catch (err) {
+    if (err.message !== 'No file selected') alert('CSV import error: ' + err.message);
+  }
+});
 
 // ===== Quick Add (text formula) =====
 const quickaddDialog = document.getElementById('quickadd-dialog');
@@ -401,8 +417,8 @@ function renderSubEvents(subs) {
         <option value="epilogue" ${sub.type === 'epilogue' ? 'selected' : ''}>📕 Epilogue</option>
         <option value="timetravel" ${sub.type === 'timetravel' ? 'selected' : ''}>⏳ Time Travel</option>
       </select>
-      <input type="text" class="sub-label" value="${sub.label || ''}" placeholder="Description...">
-      <input type="text" class="sub-date" value="${sub.date?.approximate || ''}" placeholder="Date/year">
+      <input type="text" class="sub-label" value="${escapeHtml(sub.label || '')}" placeholder="Description...">
+      <input type="text" class="sub-date" value="${escapeHtml(sub.date?.approximate || '')}" placeholder="Date/year">
       <select class="sub-tt-mode" ${isTT ? '' : 'style="display:none"'}>
         <option value="same-universe" ${sub.timeTravelMode === 'same-universe' ? 'selected' : ''}>🔄 Same Universe</option>
         <option value="new-universe" ${sub.timeTravelMode === 'new-universe' ? 'selected' : ''}>🌀 New Universe</option>
@@ -473,7 +489,7 @@ renderer.onEventClick = (event) => {
     if (!connectSourceId) {
       connectSourceId = event.id;
       document.getElementById('connect-banner').innerHTML =
-        `🔗 Source: <strong>${event.title}</strong> — now click TARGET event <button id="btn-cancel-connect">Cancel</button>`;
+        `🔗 Source: <strong>${escapeHtml(event.title)}</strong> — now click TARGET event <button id="btn-cancel-connect">Cancel</button>`;
       document.getElementById('btn-cancel-connect').addEventListener('click', cancelConnect);
     } else if (connectSourceId !== event.id) {
       // Open connection dialog
@@ -582,9 +598,9 @@ function renderUniverseList() {
     const div = document.createElement('div');
     div.className = 'uni-item';
     div.innerHTML = `
-      <div class="uni-swatch" style="background:${uni.color}"></div>
-      <span>${uni.name}<em style="color:var(--text-dim);font-size:10px">${parentLabel}</em></span>
-      ${uni.isMain ? '<em style="color:var(--text-dim);font-size:11px">main</em>' : `<button data-id="${uni.id}" class="danger uni-del">✕</button>`}
+      <div class="uni-swatch" style="background:${escapeHtml(uni.color)}"></div>
+      <span>${escapeHtml(uni.name)}<em style="color:var(--text-dim);font-size:10px">${escapeHtml(parentLabel)}</em></span>
+      ${uni.isMain ? '<em style="color:var(--text-dim);font-size:11px">main</em>' : `<button data-id="${escapeHtml(uni.id)}" class="danger uni-del">✕</button>`}
     `;
     list.appendChild(div);
   });

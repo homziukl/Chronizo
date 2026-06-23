@@ -6,55 +6,62 @@ const DEFAULT_PROJECT = {
     author: 'user',
     created: new Date().toISOString(),
     modified: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.1.0'
   },
   universes: [
-    { id: 'main', name: 'Main Timeline', color: '#ff6b00', isMain: true }
+    { id: 'main', name: 'Main Timeline', color: '#ff6b00', isMain: true, parentUniverse: null, appearance: { icon: '', background: '' } }
   ],
   events: [],
-  // Cross-universe connections (character jumps, branch points)
   connections: []
 };
 
+const STORAGE_KEY = 'chronizo-autosave';
+
+function uuid() {
+  return globalThis.crypto?.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function clone(obj) {
+  return typeof structuredClone === 'function' ? structuredClone(obj) : JSON.parse(JSON.stringify(obj));
+}
+
 // Connection types:
-// "branch"    — fiction diverges from real history (e.g. Inglourious Basterds from WWII)
-// "crossover" — character/object moves between universes (e.g. Spider-Man multiverse)
+// "branch"    — fiction diverges from real history
+// "crossover" — character/object moves between universes
 // "merge"     — two timelines converge back
 // "reference" — soft link, just a nod/easter egg
-
 export function createConnection(sourceEventId, targetEventId, type, label = '') {
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     sourceEventId,
     targetEventId,
-    type, // "branch" | "crossover" | "merge" | "reference"
+    type,
     label,
-    character: '', // who/what crosses over
+    character: '',
     notes: ''
   };
 }
 
 export function createProject(name = 'Untitled Project') {
-  return {
-    ...structuredClone(DEFAULT_PROJECT),
-    meta: {
-      ...DEFAULT_PROJECT.meta,
-      name,
-      created: new Date().toISOString(),
-      modified: new Date().toISOString()
-    }
+  const project = clone(DEFAULT_PROJECT);
+  project.meta = {
+    ...DEFAULT_PROJECT.meta,
+    name,
+    created: new Date().toISOString(),
+    modified: new Date().toISOString()
   };
+  return project;
 }
 
 export function saveToFile(project) {
-  project.meta.modified = new Date().toISOString();
-  const json = JSON.stringify(project, null, 2);
+  const normalized = normalizeLoadedProject(project);
+  normalized.meta.modified = new Date().toISOString();
+  const json = JSON.stringify(normalized, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${slugify(project.meta.name)}.chronizo.json`;
+  a.download = `${slugify(normalized.meta.name || 'chronizo')}.chronizo.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -62,28 +69,21 @@ export function saveToFile(project) {
 export function loadFromFile() {
   return new Promise((resolve, reject) => {
     const input = document.getElementById('file-input');
+    input.value = ''; // allow loading the same file again
     input.onchange = (e) => {
       const file = e.target.files[0];
       if (!file) return reject(new Error('No file selected'));
-
       const reader = new FileReader();
       reader.onload = () => {
         try {
           const data = JSON.parse(reader.result);
-          // Basic validation
-          if (!data.meta || !data.universes || !data.events) {
-            throw new Error('Invalid Chronizo file format');
-          }
-          // Ensure connections array exists (backward compat)
-          if (!data.connections) data.connections = [];
-          // Normalize missing event fields (characters/subEvents/appearance);
-          // tolerate the deprecated `attributes` field. The main universe name
-          // stored in the file is preserved exactly.
+          if (!data || typeof data !== 'object') throw new Error('Invalid Chronizo file format');
           resolve(normalizeLoadedProject(data));
         } catch (err) {
           reject(err);
         }
       };
+      reader.onerror = () => reject(reader.error || new Error('Could not read file'));
       reader.readAsText(file);
     };
     input.click();
@@ -91,119 +91,226 @@ export function loadFromFile() {
 }
 
 export function saveToLocalStorage(project) {
-  project.meta.modified = new Date().toISOString();
-  localStorage.setItem('chronizo-autosave', JSON.stringify(project));
+  try {
+    const normalized = normalizeLoadedProject(project);
+    normalized.meta.modified = new Date().toISOString();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return true;
+  } catch (err) {
+    console.warn('Chronizo autosave failed:', err);
+    return false;
+  }
 }
 
 export function loadFromLocalStorage() {
-  const raw = localStorage.getItem('chronizo-autosave');
-  if (!raw) return null;
   try {
-    const data = JSON.parse(raw);
-    if (!data.connections) data.connections = [];
-    return normalizeLoadedProject(data);
-  } catch {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeLoadedProject(JSON.parse(raw));
+  } catch (err) {
+    console.warn('Chronizo autosave load failed:', err);
     return null;
   }
 }
 
-// Backward compatibility for loaded projects (file or localStorage).
-// Guarantees each event has the list fields characters/subEvents as arrays
-// and an appearance object (older files may omit them, Req 15.1, 15.2, 15.6).
-// The deprecated `attributes` field is TOLERATED without error and silently
-// detached so it never round-trips back into exports (Req 15.3); clues are no
-// longer an event field. It MUST NOT touch universe data beyond adding a
-// missing appearance object — the main universe name stored in the file is
-// preserved exactly (Req 15.4, 9.2).
-function normalizeLoadedProject(project) {
-  if (Array.isArray(project?.events)) {
-    project.events.forEach(ev => {
-      if (!ev) return;
-      if (!Array.isArray(ev.characters)) ev.characters = [];
-      if (!Array.isArray(ev.subEvents)) ev.subEvents = [];
-      if (!ev.appearance || typeof ev.appearance !== 'object') {
-        ev.appearance = { icon: '', background: '' };
-      }
-      // Tolerate the deprecated clues field: drop it so it is neither editable
-      // nor re-exported, but never fail the load because of it.
-      if ('attributes' in ev) delete ev.attributes;
-    });
-  }
-  if (Array.isArray(project?.universes)) {
-    project.universes.forEach(uni => {
-      if (!uni) return;
-      if (!uni.appearance || typeof uni.appearance !== 'object') {
-        uni.appearance = { icon: '', background: '' };
-      }
-    });
-  }
-  return project;
+function defaultDate(date = {}) {
+  return {
+    exact: date.exact || null,
+    approximate: date.approximate || '',
+    season: date.season || '',
+    era: date.era || '',
+    rangeFrom: date.rangeFrom || '',
+    rangeTo: date.rangeTo || ''
+  };
 }
 
-// Merge another project INTO the current one
-// - Adds all universes (skips duplicates by name)
-// - Adds all events (with remapped universe IDs)
-// - Adds all connections (with remapped event IDs)
-export function mergeProjects(target, source) {
-  const uniIdMap = new Map(); // old source uni id -> new id in target
+function defaultLocation(location = {}) {
+  if (typeof location === 'string') return { realm: '', planet: '', region: '', place: location };
+  return {
+    realm: location?.realm || '',
+    planet: location?.planet || '',
+    region: location?.region || '',
+    place: location?.place || ''
+  };
+}
 
-  // Map universes
+function defaultMedia(media = {}) {
+  return {
+    type: media?.type || '',
+    title: media?.title || '',
+    episode: media?.episode || ''
+  };
+}
+
+function normalizeSubEvent(seg = {}) {
+  return {
+    id: seg.id || uuid(),
+    label: seg.label || '',
+    type: seg.type || 'flashback',
+    date: { approximate: seg.date?.approximate || '', season: seg.date?.season || '' },
+    location: { place: seg.location?.place || '' },
+    note: seg.note || '',
+    timeTravelMode: seg.timeTravelMode || ''
+  };
+}
+
+function normalizeEvent(ev = {}, index = 0) {
+  return {
+    id: ev.id || uuid(),
+    title: ev.title || 'Untitled event',
+    universe: ev.universe || 'main',
+    speculativeUniverse: ev.speculativeUniverse || '',
+    date: defaultDate(ev.date || {}),
+    releaseDate: ev.releaseDate || '',
+    source: ev.source || '',
+    reasoning: ev.reasoning || '',
+    evidence: ['shown','described','mentioned','implied','speculated'].includes(ev.evidence) ? ev.evidence : 'shown',
+    tags: Array.isArray(ev.tags) ? ev.tags.filter(Boolean) : [],
+    sortOrder: { custom: Number(ev.sortOrder?.custom ?? index * 10) || 0 },
+    location: defaultLocation(ev.location || {}),
+    media: defaultMedia(ev.media || {}),
+    subEvents: Array.isArray(ev.subEvents) ? ev.subEvents.map(normalizeSubEvent) : [],
+    characters: Array.isArray(ev.characters) ? ev.characters.filter(Boolean) : [],
+    appearance: {
+      icon: ev.appearance?.icon || '',
+      background: ev.appearance?.background || ''
+    }
+  };
+}
+
+function normalizeUniverse(uni = {}, index = 0) {
+  const isMain = uni.id === 'main' || uni.isMain || index === 0;
+  return {
+    id: isMain ? 'main' : (uni.id || uuid()),
+    name: uni.name || (isMain ? 'Main Timeline' : 'Unnamed Universe'),
+    color: uni.color || (isMain ? '#ff6b00' : randomColor()),
+    isMain,
+    description: uni.description || '',
+    parentUniverse: isMain ? null : (uni.parentUniverse || null),
+    appearance: {
+      icon: uni.appearance?.icon || '',
+      background: uni.appearance?.background || ''
+    }
+  };
+}
+
+function normalizeConnection(conn = {}) {
+  return {
+    id: conn.id || uuid(),
+    sourceEventId: conn.sourceEventId || '',
+    targetEventId: conn.targetEventId || '',
+    type: conn.type || 'reference',
+    label: conn.label || '',
+    character: conn.character || '',
+    notes: conn.notes || ''
+  };
+}
+
+export function normalizeLoadedProject(project = {}) {
+  const now = new Date().toISOString();
+  const normalized = {
+    meta: {
+      ...DEFAULT_PROJECT.meta,
+      ...(project.meta || {}),
+      name: project.meta?.name || 'Untitled Project',
+      created: project.meta?.created || now,
+      modified: project.meta?.modified || now,
+      version: project.meta?.version || DEFAULT_PROJECT.meta.version
+    },
+    universes: [],
+    events: [],
+    connections: []
+  };
+
+  const sourceUniverses = Array.isArray(project.universes) && project.universes.length
+    ? project.universes
+    : DEFAULT_PROJECT.universes;
+  normalized.universes = sourceUniverses.map(normalizeUniverse);
+  if (!normalized.universes.some(u => u.id === 'main')) {
+    normalized.universes.unshift(normalizeUniverse(DEFAULT_PROJECT.universes[0], 0));
+  }
+  const validUniverseIds = new Set(normalized.universes.map(u => u.id));
+
+  normalized.events = (Array.isArray(project.events) ? project.events : [])
+    .map((ev, i) => normalizeEvent(ev, i));
+  normalized.events.forEach((ev, i) => {
+    if (!validUniverseIds.has(ev.universe)) ev.universe = 'main';
+    if (ev.speculativeUniverse && !validUniverseIds.has(ev.speculativeUniverse)) ev.speculativeUniverse = '';
+    if (!Number.isFinite(ev.sortOrder.custom)) ev.sortOrder.custom = i * 10;
+  });
+
+  const validEventIds = new Set(normalized.events.map(e => e.id));
+  normalized.connections = (Array.isArray(project.connections) ? project.connections : [])
+    .map(normalizeConnection)
+    .filter(c => validEventIds.has(c.sourceEventId) && validEventIds.has(c.targetEventId));
+
+  return normalized;
+}
+
+function eventSignature(ev) {
+  const d = ev.date || {};
+  const media = ev.media || {};
+  return [
+    (ev.title || '').trim().toLowerCase(),
+    ev.universe || '',
+    d.exact || '', d.approximate || '', d.rangeFrom || '', d.rangeTo || '',
+    ev.releaseDate || '',
+    (media.title || '').trim().toLowerCase(),
+    (media.episode || '').trim().toLowerCase(),
+    (ev.source || '').trim().toLowerCase()
+  ].join('|');
+}
+
+// Merge another project INTO the current one.
+export function mergeProjects(target, source) {
+  normalizeLoadedProject(target);
+  source = normalizeLoadedProject(source);
+
+  const uniIdMap = new Map();
   source.universes.forEach(srcUni => {
-    // Check if universe with same name already exists
-    const existing = target.universes.find(u => u.name === srcUni.name);
+    const existing = target.universes.find(u => u.name.toLowerCase() === srcUni.name.toLowerCase());
     if (existing) {
       uniIdMap.set(srcUni.id, existing.id);
     } else {
-      const newId = crypto.randomUUID();
+      const newId = srcUni.id === 'main' ? `main-${uuid()}` : uuid();
       uniIdMap.set(srcUni.id, newId);
-      target.universes.push({
-        ...srcUni,
-        id: newId,
-        isMain: false, // only target keeps its main
-        parentUniverse: srcUni.parentUniverse ? uniIdMap.get(srcUni.parentUniverse) || null : null
-      });
+      target.universes.push({ ...srcUni, id: newId, isMain: false });
     }
   });
-
-  // Fix parent references for newly added universes
   target.universes.forEach(u => {
-    if (u.parentUniverse && uniIdMap.has(u.parentUniverse)) {
-      u.parentUniverse = uniIdMap.get(u.parentUniverse);
-    }
+    if (u.parentUniverse && uniIdMap.has(u.parentUniverse)) u.parentUniverse = uniIdMap.get(u.parentUniverse);
+    if (u.id !== 'main' && u.parentUniverse === u.id) u.parentUniverse = 'main';
   });
 
-  // Map events
+  const existingSigs = new Map(target.events.map(e => [eventSignature(e), e.id]));
   const evIdMap = new Map();
   source.events.forEach(srcEv => {
-    // Skip if event with same title + same time already exists
-    const dup = target.events.find(e =>
-      e.title === srcEv.title && e.universe === uniIdMap.get(srcEv.universe)
-    );
-    if (dup) {
-      evIdMap.set(srcEv.id, dup.id);
-      return;
-    }
-    const newId = crypto.randomUUID();
-    evIdMap.set(srcEv.id, newId);
-    target.events.push({
-      ...structuredClone(srcEv),
-      id: newId,
+    const mapped = normalizeEvent({
+      ...srcEv,
       universe: uniIdMap.get(srcEv.universe) || srcEv.universe,
       speculativeUniverse: srcEv.speculativeUniverse ? (uniIdMap.get(srcEv.speculativeUniverse) || '') : ''
     });
+    const sig = eventSignature(mapped);
+    const dupId = existingSigs.get(sig);
+    if (dupId) {
+      evIdMap.set(srcEv.id, dupId);
+      return;
+    }
+    mapped.id = uuid();
+    evIdMap.set(srcEv.id, mapped.id);
+    target.events.push(mapped);
+    existingSigs.set(sig, mapped.id);
   });
 
-  // Map connections
   (source.connections || []).forEach(srcConn => {
     const newSrc = evIdMap.get(srcConn.sourceEventId);
     const newTgt = evIdMap.get(srcConn.targetEventId);
     if (!newSrc || !newTgt) return;
-    target.connections.push({
-      ...srcConn,
-      id: crypto.randomUUID(),
-      sourceEventId: newSrc,
-      targetEventId: newTgt
-    });
+    const duplicateConn = target.connections.some(c =>
+      c.sourceEventId === newSrc && c.targetEventId === newTgt && c.type === srcConn.type && c.label === srcConn.label
+    );
+    if (duplicateConn) return;
+    target.connections.push({ ...srcConn, id: uuid(), sourceEventId: newSrc, targetEventId: newTgt });
   });
 
   target.meta.modified = new Date().toISOString();
@@ -211,7 +318,7 @@ export function mergeProjects(target, source) {
 }
 
 function slugify(text) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return String(text || 'chronizo').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'chronizo';
 }
 
 // ===== CSV Export =====
@@ -363,7 +470,7 @@ function parseCSV(text) {
     });
   }
 
-  return project;
+  return normalizeLoadedProject(project);
 }
 
 function parseCSVLine(line) {
